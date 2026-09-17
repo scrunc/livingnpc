@@ -75,6 +75,8 @@ public final class CharacterManager {
     private final Map<UUID, Long> nextResync = new java.util.HashMap<>();        // npc → next absolute-position resend ms
     private final Map<UUID, LobbyState> lobbyStates = new java.util.HashMap<>(); // lobby npc → roam/sit/attend state
     private final Map<UUID, Long> fallbackCd = new java.util.HashMap<>();       // player → next fallback-greet ms
+    private final Map<UUID, Long> nextDoorCheck = new java.util.HashMap<>();    // npc → next door scan ms
+    private boolean doorsEnabled = true;
 
     // --- outings: NPCs away at a shared Space, a ghost head minding the post ---
     private final Map<UUID, AwayState> away = new java.util.HashMap<>();            // npc → active outing
@@ -288,6 +290,7 @@ public final class CharacterManager {
         shopRegions.clear();
         recentBuyers.clear();
         openedDoors.clear();
+        nextDoorCheck.clear();
         away.clear();
         pendingOutings.clear();
         ghostIds.clear();
@@ -316,6 +319,7 @@ public final class CharacterManager {
         PacketNpc.seatMountOffset = plugin.getConfig().getDouble("seat-mount-offset", 1.7);
         PacketNpc.tagHeight = plugin.getConfig().getDouble("tag-height", 2.05);
         PacketNpc.tagSeatedDrop = plugin.getConfig().getDouble("tag-seated-drop", 1.0);
+        this.doorsEnabled = plugin.getConfig().getBoolean("doors.enabled", true);
         this.outingSchedules = parseOutingSchedules();
         if (spaces != null) spaces.load();
         if (aiChat != null) aiChat.reload();
@@ -2708,7 +2712,7 @@ public final class CharacterManager {
     // --- doors: a walking NPC opens doors/gates/trapdoors ahead and closes them behind ---
 
     private void tickDoors(Character c, World w, boolean walking, long now) {
-        if (!plugin.getConfig().getBoolean("doors.enabled", true)) return;
+        if (!doorsEnabled) return;
         Map<org.bukkit.block.Block, Long> open = openedDoors.get(c.uuid());
         if (open != null) {
             for (Iterator<Map.Entry<org.bukkit.block.Block, Long>> it = open.entrySet().iterator(); it.hasNext(); ) {
@@ -2723,18 +2727,31 @@ public final class CharacterManager {
             if (open.isEmpty()) openedDoors.remove(c.uuid());
         }
         if (!walking) return;
+        long nextCheck = nextDoorCheck.getOrDefault(c.uuid(), 0L);
+        if (now < nextCheck) return;
+        nextDoorCheck.put(c.uuid(), now + 200L);   // throttle scan to ~5 Hz instead of 20 Hz
+
         double yaw = Math.toRadians(c.movementYaw());
         double fx = -Math.sin(yaw), fz = Math.cos(yaw);
-        for (double dist : new double[]{0.5, 1.0}) {
-            org.bukkit.block.Block b = w.getBlockAt(
-                    (int) Math.floor(c.getX() + fx * dist), (int) Math.floor(c.getY() + 0.1),
-                    (int) Math.floor(c.getZ() + fz * dist));
-            openIfDoor(c, w, b, now);
+        int bx1 = (int) Math.floor(c.getX() + fx * 0.6);
+        int by = (int) Math.floor(c.getY() + 0.1);
+        int bz1 = (int) Math.floor(c.getZ() + fz * 0.6);
+
+        int bx2 = (int) Math.floor(c.getX() + fx * 1.2);
+        int bz2 = (int) Math.floor(c.getZ() + fz * 1.2);
+
+        if (w.isChunkLoaded(bx1 >> 4, bz1 >> 4)) {
+            openIfDoor(c, w, w.getBlockAt(bx1, by, bz1), now);
+        }
+        // Deduplicate: only inspect second block if it differs from the first
+        if ((bx1 != bx2 || bz1 != bz2) && w.isChunkLoaded(bx2 >> 4, bz2 >> 4)) {
+            openIfDoor(c, w, w.getBlockAt(bx2, by, bz2), now);
         }
     }
 
     private void openIfDoor(Character c, World w, org.bukkit.block.Block b, long now) {
-        if (b.getType().name().startsWith("IRON")) return;   // can't be opened by hand — don't cheat
+        org.bukkit.Material mat = b.getType();
+        if (mat.isAir() || mat.name().startsWith("IRON")) return;   // fast isAir bail + can't open iron by hand
         if (b.getBlockData() instanceof org.bukkit.block.data.type.Door door
                 && door.getHalf() == org.bukkit.block.data.Bisected.Half.TOP) {
             b = b.getRelative(org.bukkit.block.BlockFace.DOWN);
