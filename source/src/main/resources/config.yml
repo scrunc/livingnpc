@@ -1,0 +1,384 @@
+# LivingShopkeeper — configuration (P0 scaffold)
+# Voiced, memory-keeping NPC merchants. Author shopkeepers, dialog and shops in YAML.
+# Most keys below are consumed by later phases; they are declared now so the shape is stable.
+
+# How a shopkeeper's spoken line is shown as text alongside the voice.
+#   chat | action_bar   (bubble = floating hologram over the NPC — coming later; falls back to chat)
+subtitle-mode: chat
+
+# How near (blocks) a player must be to hear/see a shopkeeper speak and be tracked. (P1/P2)
+hearing-distance: 16
+
+# Per-player memory + relationship storage backend.  sqlite | json   (P5)
+storage: sqlite
+
+# The built-in reply when a click matches nothing (no actions, no menu, no interact dialog).
+# Placeholders: <npc> <player> <time>. Empty string = silent. Rate-limited per player.
+messages:
+  fallback-greet: "<gold><npc></gold><gray> greets you.</gray>"
+  fallback-cooldown-seconds: 5
+
+# Sitting pose tuning: how far below the seat surface the invisible mount spawns. If NPCs sit too HIGH,
+# increase this; too LOW (clipping into the seat), decrease. Applies to lobby seats and barker sit places.
+seat-mount-offset: 1.7
+
+# Floating-tag placement (applied on /lsk reload). tag-height = the LOWEST line's height above the NPC's
+# feet; tag-seated-drop = how far the whole tag stack comes down while the NPC sits.
+tag-height: 2.05
+tag-seated-drop: 1.0
+
+# Barker (shop-crier) NPCs — global defaults. Any barker can override these in its own
+# characters/<id>/character.yml under `barker:` (or via /lsk barker <id> …).
+barker:
+  # Backoff after a player IGNORES an invite (walked off / didn't come in). Per-barker override:
+  # /lsk barker <id> cooldown <sec>. (The effective gap is the larger of this and the invite node's
+  # `cooldown:` in the barker's dialog file.)
+  ignored-cooldown-seconds: 120
+  # After a player DOES come into the shop region, don't pester them again for this long (seconds).
+  attracted-cooldown-seconds: 3600
+  # After calling out, how long (seconds) to watch for the player to step into the region before giving up.
+  invite-window-seconds: 12
+  # The "shop region": a radius (blocks) around the barker's home. Enter it → fires `invite_success`.
+  region-radius: 6
+  # Blocks: notice a passer-by within this range and walk toward them.
+  notice-radius: 12
+  # Blocks: close enough to stop, face them, and call out.
+  invite-radius: 5
+  # Seconds the barker gestures/holds after calling out (won't re-greet during this).
+  invite-address-seconds: 4
+  # Seconds to dwell at each patrol waypoint.
+  waypoint-pause-seconds: 3
+  # When close enough to invite but unable to speak yet (dialog cooldown / no invite node), retry that
+  # player after this many seconds instead of standing still next to them.
+  invite-retry-seconds: 8
+  # Walk speed (blocks/sec).
+  walk-speed: 4.3
+  nav:
+    max-nodes: 1500
+    max-range: 40
+
+# LOBBY NPCs (/lsk create <id> lobby): hub NPCs with a post (pedestal). They roam/sit nearby when idle
+# and run back to the post when a player steps close. Clicks (and punches) run their `actions`
+# (/lsk action <id> add player:/warps). Floating tag: /lsk tag <id> add <MiniMessage>.
+lobby:
+  # A player within this many blocks of the POST makes the NPC hurry back and attend.
+  trigger-radius: 2.0
+  # Keep standing at the post this long (seconds) after the last visitor leaves.
+  stay-seconds: 15
+  # Idle roaming stays within this radius (blocks) of the post.
+  roam-radius: 8
+  # Pause (seconds, jittered) between idle outings.
+  wander-cooldown-seconds: 18
+  # Chance an outing goes to a wand-marked seat instead of a random stroll (needs seats).
+  sit-chance: 0.35
+  # How long (seconds, jittered) it stays seated.
+  sit-seconds: 25
+  run-speed-multiplier: 1.6
+  walk-speed-multiplier: 0.85
+  # Item used by /lsk lobby <id> seatwand to mark slab/stair seats.
+  seat-wand: BLAZE_ROD
+
+# SHOP NPCs — the plugin's namesake. Admin shops: /lsk create <id> shop (infinite stock). Player shops:
+# give a creation item (/lsk shopitem <player>), the player right-clicks THEIR chest then the standing
+# spot — placer becomes the owner (their skin + name). Owner-click = manage GUI (trades editor, all
+# click-driven, no item dragging); customer-click = grid menu with prices, click to buy. Stock and
+# payments flow through the linked chest. Shops live the lobby life (roam, seats, run back to post).
+shop:
+  # Item handed out by /lsk shopitem (PDC-tagged — ordinary items of this type do nothing).
+  creation-item: VILLAGER_SPAWN_EGG
+  # Baseline shops per player (admins bypass). Raise a rank's cap by granting the
+  # permission livingshopkeeper.shops.<n> (e.g. livingshopkeeper.shops.5); the highest
+  # granted node wins, and livingshopkeeper.shops.unlimited removes the cap entirely.
+  max-per-player: 2
+  # Max distance (blocks) between the shop NPC and its linked chest.
+  max-container-distance: 10
+  # Only allow placing player shops inside a WorldGuard/ARM region the placer owns or is member of.
+  # (No WorldGuard installed → no restriction.) The shop's region also defines "a customer is inside".
+  require-region: true
+  # The placer must actually OWN the region (the ARM buyer/renter) — being trusted/member on someone
+  # else's plot is not enough. false → membership suffices.
+  require-region-owner: true
+  # Without a region at the post, "a customer is in the shop" falls back to this radius (blocks).
+  attend-radius: 8
+  # Wand the shop owner uses to mark slab/stair sit spots (click a marked seat again = priority seat).
+  seat-wand: GOLDEN_SWORD
+  # Idle social life: chance per wander-decision to visit a nearby fellow shopkeeper for a chat
+  # (`gossip` dialog lines), until a customer shows up and they rush back.
+  gossip-chance: 0.35
+  gossip-range: 16
+  gossip-seconds: 22
+  # What customers see on right-click: "villager" = the real vanilla trading window (scrollable,
+  # out-of-stock trades greyed out) · "grid" = the legacy chest-grid menu.
+  customer-gui: villager
+  # Trade editor pages (Shopkeepers-style columns, 9 trades per page) → max trades = pages × 9.
+  max-trade-pages: 10
+  # "Hawk wares" behavior (per-shop toggle in the Behavior menu, default off): how often the keeper
+  # calls a random trade out to anyone within hawk-range. Author a `hawk` dialog trigger to replace
+  # the built-in shout with your own line/voice.
+  hawk-seconds: 45
+  hawk-range: 12
+  # Ping the (online) owner in chat when a customer buys from their shop. Placeholders in the format:
+  # <player> (buyer) · <amount> · <item> · <npc> (shop name). Colours: & / &#hex / MiniMessage.
+  sale-notify: true
+  sale-notify-format: "<gold>[Sale]</gold> <yellow><player></yellow> <gray>bought</gray> <white><amount>×</white> <item> <gray>from</gray> <npc>"
+
+# Outings: NPCs with a post (lobby / shop / barker) can leave for a shared hangout SPACE.
+# Spaces: /lsk space create <id> at the spot, then /lsk space wand <id> and right-click slabs/stairs
+# to mark seats — any visiting NPC claims a free one. While an NPC is out, a slowly-spinning GHOST HEAD
+# (its own skin) floats at its post with its tag + the placeholder line below; clicking (or punching)
+# the head uses the NPC exactly as if it were standing there. While out it can wear a different tag:
+# /lsk away <id> tag add <MiniMessage…>. Manual: /lsk away <id> [minutes] [space] · /lsk back <id>.
+# SHOP NPCs are OPT-IN: they stay at their post unless the owner turns outings on in the shop's
+# Outings menu (or default-enabled below is set true). Lobby/barker NPCs stay opt-out (default on).
+# Owners also tick WHICH spaces a keeper may visit in that menu (stored as away.spaces in character.yml;
+# empty = any space). Per-NPC override anywhere: ai.outings: true|false in its character.yml.
+# Dialog triggers: leave_post · arrive_space · space_chat · back_at_post.
+outings:
+  enabled: true
+  # Default for SHOP keepers when the owner hasn't chosen — false = shops stay put until opted in.
+  default-enabled: false
+  # The hologram line added under the ghost head's tag.
+  placeholder-line: "<gray>(not available right now)</gray>"
+  # Ghost head height above the post (blocks).
+  head-height: 1.5
+  # -1 (default) = ALWAYS walk, however far — no teleporting. Set a positive number of blocks to allow
+  # a fade-out/reappear for spaces farther away than that.
+  walk-max-distance: -1
+  # /lsk away <id> with no minutes uses this (per-NPC override: /lsk away <id> minutes <n>).
+  default-minutes: 6
+  walk-speed-multiplier: 0.9
+  # Seconds (jittered) between little strolls/seat-grabs while hanging out.
+  idle-seconds: 14
+  # How long (seconds, jittered) a visitor sits before it may get up and stretch its legs — visitors
+  # cycle sit → stroll → (re)sit so the zone never looks like a row of statues.
+  sit-seconds: 45
+  # How far (blocks) visitors spread out around a space's centre while milling — bigger = less bunching.
+  mill-radius: 6
+  # At a space with NO free wand-marked chairs, chance per idle-tick a visitor just SITS on the ground
+  # where it stands (so they sit together even without seats). Set 0 to only sit on real seats.
+  ground-sit-chance: 0.4
+  # Group trips: when an outing fires (scheduled OR /lsk away), nearby idle colleagues may tag along —
+  # they walk side-by-side (chatting: `stroll_chat` dialog trigger), then sit on adjacent seats.
+  group-chance: 0.5      # each nearby candidate's odds of joining
+  max-group: 3           # leader + companions
+  buddy-range: 32        # how near (blocks) a colleague must be to be invited
+  group-on-manual: true  # /lsk away <id> also gathers buddies (recall extras with /lsk back)
+  # When a scheduled outing picks a spar-enabled NPC, this is the chance it heads to an ARENA space
+  # instead (`/lsk space arena <id> on`) — looking for a fight rather than a chat.
+  arena-visit-chance: 0.35
+  # Scheduled outings, checked against each NPC's world time. Each eligible NPC rolls `chance` ONCE
+  # per window; winners head out staggered over `stagger-seconds`. They return when their stay ends
+  # or the window closes, whichever comes first. Times: HH:mm, ticks, or day/dusk/night/dawn.
+  schedules:
+    night-out:
+      from: night
+      until: dawn
+      types: [shop]         # shop | lobby | barker
+      chance: 0.5           # each eligible NPC's odds of going out tonight
+      space: any            # a space id, or "any" (per-NPC preference wins: /lsk away <id> space …)
+      min-stay-minutes: 4
+      max-stay-minutes: 10
+      stagger-seconds: 90
+
+# Conversations between NPCs (shop-front gossip + space hangouts). Turn-taking beats: the speaker
+# turns and gestures, says a line, and the listener nods / chuckles / waves back a beat later.
+# Authored dialog triggers (per character): gossip_start · gossip · gossip_reply · gossip_end ·
+# space_chat. When no authored line matches, a random `smalltalk` line is shown to nearby players
+# instead — so a conversation is never invisible.
+gossip:
+  # Master switch for NPC↔NPC chatter (shop-front gossip, space hangouts, stroll chat).
+  enabled: true
+  # Seconds (jittered) between beats.
+  line-interval-seconds: 7
+  # Soft villager mumble on each line, pitched per NPC.
+  murmur: true
+  smalltalk-format: "<gold><npc></gold> <dark_gray>»</dark_gray> <gray><line></gray>"
+  # <partner> is replaced with the other NPC's name.
+  smalltalk:
+    - "Slow day today, <partner>?"
+    - "Prices keep climbing, I tell you."
+    - "Did you see that adventurer earlier? Full netherite. FULL."
+    - "My feet are killing me."
+    - "You should try closing early some night, <partner>."
+    - "Heard there's a new stall opening down the row."
+    - "One of these days I'm taking a proper holiday."
+    - "The weather's been good for business, hasn't it?"
+    - "A creeper got into my storage again."
+    - "Between you and me, <partner> — best customers come after dark."
+    - "I swear that jukebox has played the same disc all week."
+    - "Fresh stock coming in tomorrow. Don't tell anyone."
+
+# AI-generated NPC chatter (optional, OFF by default). When enabled, conversation beats that have no
+# authored dialog line ask an LLM for the next line instead of the static smalltalk pool — with the
+# speaker's `persona` (character.yml / /lsk persona <id> …), the partner, the scene, and a short
+# transcript for continuity. Any OpenAI-compatible endpoint works (OpenRouter, Cerebras, Groq, …).
+# FAILOVER: every provider can list several keys and several models; a failing key+model combo is put
+# on a 60s cooldown and the next is tried — if all fail, the static pool speaks. COST/CPU: fully async
+# (no server-thread I/O), tiny max-tokens, a global requests-per-minute cap and a per-conversation
+# minimum interval; when caps are hit the static pool speaks, so gameplay never waits on the network.
+ai-chat:
+  enabled: false
+  max-tokens: 60
+  timeout-seconds: 8
+  # At most one generated line per conversation per this many seconds.
+  min-interval-seconds: 20
+  # Global cap across ALL conversations.
+  requests-per-minute: 6
+  # How many previous lines of the conversation are sent for continuity.
+  history: 6
+  # Placeholders: <speaker> <listener> <speaker_persona> <listener_persona> <context>
+  system: "You are <speaker>, a Minecraft villager NPC. <speaker_persona> You are chatting with <listener> (<listener_persona>). <context> Reply with exactly ONE short casual in-character line, at most 18 words. No quotes, no name prefix, no narration, no emojis."
+  providers:
+    - name: cerebras
+      url: https://api.cerebras.ai/v1/chat/completions
+      keys: []            # e.g. ["csk-…", "csk-…"] — tried in order on failure
+      models: ["llama-3.3-70b"]
+    - name: openrouter
+      url: https://openrouter.ai/api/v1/chat/completions
+      keys: []            # e.g. ["sk-or-…"]
+      models: ["meta-llama/llama-3.3-70b-instruct:free", "google/gemini-2.0-flash-001"]
+
+# Friendly duels (per-NPC opt-in: /lsk spar <id> on, optionally /lsk spar <id> region <wgRegion>).
+# The NPC NEVER attacks first: a player hitting a spar-enabled NPC (inside its arena region, if set)
+# starts a duel that MIRRORS the player's weapon — sword answers sword, mace answers mace, bow answers
+# bow (the NPC kites and shoots real arrows). It stands down and walks home when the player stops
+# hitting it for idle-end-seconds, walks away, or dies. Works at its post AND while visiting a space.
+# EVERYTHING BELOW IS ONLY THE DEFAULT — each fighter carries its own numbers and style:
+#   /lsk spar <id> style <balanced|aggressive|defensive>   (aggressive = faster swings + pressure;
+#     defensive = strikes then breaks off, keeps range; all styles strafe/circle between attacks)
+#   /lsk spar <id> set <damage|arrow-damage|knockback|attack-reach|swing-cooldown-ms|shot-interval-ms|
+#     speed-multiplier|idle-end-seconds|give-up-distance> <n|clear>   ·   /lsk spar <id> info
+# Dialog triggers: spar_start · spar_hit · spar_end.
+spar:
+  enabled: true
+  # Melee damage per landed blow (2.0 = one heart) — friendly by default.
+  damage: 1.0
+  knockback: 0.25
+  attack-reach: 2.6
+  swing-cooldown-ms: 900
+  # Ranged (bow/crossbow mirror): arrow damage + cadence; the NPC keeps 6–16 blocks of distance.
+  arrow-damage: 1.0
+  shot-interval-ms: 2200
+  # The duel ends when the player hasn't hit the NPC for this long (they "did nothing").
+  idle-end-seconds: 10
+  give-up-distance: 24
+  speed-multiplier: 1.2
+  # Armor worn while dueling (netherite|diamond|iron|gold|chainmail|leather|none). Per-NPC:
+  # /lsk spar <id> armor <tier>.
+  armor: iron
+  # A mirrored MACE hits like one: heavier damage + launch, slower swings, the smash crunch.
+  mace-damage-multiplier: 1.4
+  mace-knockback-multiplier: 1.8
+  # SIGNATURE MOVES so duels aren't bland. Each is gated by special-cooldown-seconds so they punctuate
+  # the fight rather than spam.
+  special-cooldown-seconds: 3
+  # Mace: the wind-charge combo — leap skyward on a wind charge, HOVER, then fall onto the target for a
+  # big AoE smash (wind-burst + ground-smash effects). chance = odds a ready mace swing becomes the combo.
+  mace-smash-chance: 0.6
+  mace-launch-height: 4.5          # blocks the NPC rises before slamming
+  mace-rise-speed: 0.28            # blocks/tick going up — LOW so the client renders the full height
+  mace-hang-ms: 650                # how long it hovers at the top (the telegraph) before dropping
+  mace-slam-speed: 0.9             # blocks/tick coming down; the slam homes onto the target
+  mace-smash-damage-multiplier: 2.5
+  mace-smash-radius: 4.0           # blocks; the duelist takes full damage, bystanders just get gusted up
+  mace-smash-knockback: 1.1        # horizontal launch on the target
+  mace-smash-launch: 1.2           # UPWARD launch on the target (this is the "sent flying" pop)
+  # How hard the NPC itself is shoved back when the player hits it during a duel (mace hits shove harder).
+  hit-knockback: 0.32
+  hit-knockback-mace: 0.6
+  # Sword: occasional jump-crit (extra damage + crit particles).
+  sword-crit-chance: 0.3
+  sword-crit-multiplier: 1.6
+  # Axe: knocks a raised shield aside (disables it) then bites for extra.
+  axe-shield-break: true
+  axe-shield-disable-ticks: 100
+  # Bow/crossbow: occasional charged power shot — a faster, harder, critical arrow.
+  bow-power-shot-chance: 0.3
+  # Arena challenges (spaces flagged /lsk space arena <id> on): a spar-enabled visitor walks up to a
+  # nearby player, throws down the gauntlet (`challenge` dialog trigger, else a line below), and waits
+  # challenge-window-seconds for them to ACCEPT BY HITTING it. Declined → that player is left alone
+  # for challenge-cooldown-seconds.
+  challenge-range: 12
+  challenge-interval-seconds: 15
+  challenge-window-seconds: 15
+  challenge-cooldown-seconds: 120
+  challenge-lines:
+    - "Care for a duel, <player>? Strike me when you're ready!"
+    - "You look like you can handle yourself, <player>. Prove it — hit me!"
+    - "The arena's warm, <player>. First blow is yours."
+    - "Fancy a friendly bout, <player>? Any weapon you like — I'll match it."
+  # Said when the NPC wins a duel — used when no `spar_win` dialog is authored and AI chat is off/capped.
+  gg-lines:
+    - "GG, <player> — good bout!"
+    - "Well fought, <player>. Come back for a rematch!"
+    - "GG! You almost had me that time, <player>."
+    - "That's the spirit, <player>. GG — no hard feelings!"
+
+# Walking NPCs open doors, fence gates and trapdoors in their way and close them behind (never iron).
+doors:
+  enabled: true
+
+# Getting hit. A punch or weapon strike plays a hurt flinch + a dramatic dialog line, and repeated hits
+# make the NPC flee or fight back (then walk home). Author lines under these triggers in the character's
+# dialog/ file:  hit_punch (first punch) · hit_again (repeat punch) · hit_weapon (sword/axe/trident/mace)
+# · hit (fallback for all of the above) · flee · fightback · fight_hit (it lands a blow) · calm (over,
+# walking back). Voice clips: add `voice: <clip>` per line + the file in the character's voice/ folder.
+combat:
+  enabled: true
+  # flee | fightback | none — what happens once a player has hit the NPC react-after-hits times.
+  # Per-character override: /lsk combat <id> <flee|fightback|none|default>.
+  reaction: flee
+  react-after-hits: 3
+  # A weapon hit counts as this many punches (a sword draws the reaction faster than fists).
+  weapon-counts-as: 2
+  # Hits are forgotten after this long without a new one (seconds).
+  hit-memory-seconds: 60
+  flee-seconds: 12
+  # How far (blocks) ahead the flee point is aimed each second while running away.
+  flee-distance: 10
+  flee-speed-multiplier: 1.6
+  fight-seconds: 15
+  fight-speed-multiplier: 1.35
+  attack-reach: 2.6
+  swing-cooldown-ms: 900
+  # Damage per landed blow (2.0 = one heart). Scripted damage, not PvP — it lands even inside
+  # WorldGuard/claim-protected regions.
+  damage: 2.0
+  knockback: 0.4
+  # Stop chasing/fleeing when the attacker gets this far away (blocks).
+  give-up-distance: 24
+  # After being hit, don't try to invite that player again for this long (seconds).
+  no-invite-after-hit-seconds: 300
+
+# Idle "body life" — small movements so a still NPC doesn't look like a statue.
+idle:
+  enabled: true
+  # Look at a player within this many blocks; when nobody's that close, the NPC idly glances around instead.
+  engage-distance: 5
+  # Occasionally turn the head/body to a gentle random direction while idle.
+  glance: true
+  glance-interval-seconds: 6
+  # Occasionally swing an arm — a small fidget.
+  fidget: true
+  fidget-interval-seconds: 12
+
+# Human-like activity. These are intentionally slow/rare: a merchant should feel occupied, not animated.
+natural:
+  # Chance per second while a barker is walking a patrol route (not while chasing a player).
+  patrol-jump-chance-per-second: 0.02
+  patrol-jump-height: 0.42
+  # Maximum body-turn change per 20 Hz movement tick.
+  turn-degrees-per-tick: 16
+  # Area conversation is jittered around this interval so it does not sound scheduled.
+  place-ambient-interval-seconds: 28
+
+voice:
+  # Master switch for Simple Voice Chat playback. Ignored (silent) if SVC is absent.
+  enabled: true
+  # How far (blocks) a shopkeeper's voice carries.
+  distance: 16
+  # Voice clips are WAV files at plugins/LivingShopkeeper/voice/<id>.wav (48 kHz mono is ideal, but any
+  # rate/channels is accepted and resampled). Decoded on load into memory — no ffmpeg needed. Each
+  # shopkeeper plays its `voice.greeting` clip (default "greeting") on right-click.
+  # Runtime TTS is intentionally OFF — the voice bank is generated offline (see DESIGN.md).
+  runtime-tts: false

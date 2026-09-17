@@ -1,0 +1,106 @@
+package dev.servereer.livingshopkeeper.audio;
+
+import de.maxhenkel.voicechat.api.BukkitVoicechatService;
+import de.maxhenkel.voicechat.api.ServerLevel;
+import de.maxhenkel.voicechat.api.VoicechatApi;
+import de.maxhenkel.voicechat.api.VoicechatPlugin;
+import de.maxhenkel.voicechat.api.VoicechatServerApi;
+import de.maxhenkel.voicechat.api.audiochannel.AudioPlayer;
+import de.maxhenkel.voicechat.api.audiochannel.LocationalAudioChannel;
+import de.maxhenkel.voicechat.api.events.EventRegistration;
+import de.maxhenkel.voicechat.api.events.VoicechatServerStartedEvent;
+import org.bukkit.World;
+import org.bukkit.plugin.java.JavaPlugin;
+
+import java.util.UUID;
+import java.util.function.Supplier;
+
+/**
+ * Bridges a shopkeeper's spoken line onto a Simple Voice Chat locational channel at the NPC — the same
+ * pump VideoWall/ArcadeCab use, so anyone within range hears the voice come from the NPC's mouth.
+ *
+ * <p>This class touches SVC API types, so it must only be loaded/used when the {@code voicechat} plugin
+ * is installed — {@link dev.servereer.livingshopkeeper.LivingShopkeeperPlugin} guards that. The
+ * {@link VoicechatServerApi} only arrives via SVC's server-started event, which fires <b>once at server
+ * startup</b>: a plugin PlugMan-loaded afterwards misses it and stays silent until a real restart.
+ */
+public final class VoiceChatAudio {
+
+    private final JavaPlugin plugin;
+    private volatile VoicechatServerApi api;
+
+    public VoiceChatAudio(JavaPlugin plugin) {
+        this.plugin = plugin;
+    }
+
+    /** Register our SVC hook. Call only when the voicechat plugin is present. */
+    public void register() {
+        BukkitVoicechatService service = plugin.getServer().getServicesManager().load(BukkitVoicechatService.class);
+        if (service == null) {
+            plugin.getLogger().info("Simple Voice Chat service unavailable — shopkeepers will be silent.");
+            return;
+        }
+        service.registerPlugin(new Hook());
+        plugin.getLogger().info("Registered with Simple Voice Chat; shopkeeper voice enabled (needs a real restart if hot-loaded).");
+    }
+
+    public boolean available() {
+        return api != null;
+    }
+
+    /**
+     * Start a locational voice stream at {@code (x,y,z)} fed by {@code supplier} (one 960-sample 20 ms mono
+     * frame per call, or null to end). Returns a stop handle, or null if audio can't start.
+     */
+    public Handle start(World world, double x, double y, double z, float distance,
+                        Supplier<short[]> supplier, Runnable onStopped) {
+        VoicechatServerApi a = api;
+        if (a == null) return null;
+        try {
+            ServerLevel level = a.fromServerLevel(world);
+            LocationalAudioChannel channel = a.createLocationalAudioChannel(UUID.randomUUID(), level, a.createPosition(x, y, z));
+            if (channel == null) return null;
+            channel.setDistance(distance);
+            AudioPlayer player = a.createAudioPlayer(channel, a.createEncoder(), supplier);
+            if (onStopped != null) player.setOnStopped(onStopped);
+            player.startPlaying();
+            return new Handle(player);
+        } catch (Throwable t) {
+            plugin.getLogger().warning("Could not start shopkeeper voice: " + t);
+            return null;
+        }
+    }
+
+    /** Opaque stop handle so callers needn't reference SVC types. */
+    public static final class Handle {
+        private final AudioPlayer player;
+
+        private Handle(AudioPlayer player) {
+            this.player = player;
+        }
+
+        public void stop() {
+            try {
+                if (player.isPlaying()) player.stopPlaying();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private final class Hook implements VoicechatPlugin {
+        @Override
+        public String getPluginId() {
+            return "livingshopkeeper";
+        }
+
+        @Override
+        public void initialize(VoicechatApi a) {
+            // the server API arrives via the started event below
+        }
+
+        @Override
+        public void registerEvents(EventRegistration registration) {
+            registration.registerEvent(VoicechatServerStartedEvent.class, e -> api = e.getVoicechat());
+        }
+    }
+}

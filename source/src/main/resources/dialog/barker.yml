@@ -1,0 +1,78 @@
+# LivingShopkeeper — default BARKER dialog (copied into a barker's dialog/ folder on creation).
+#
+# `invite`          fires when a player wanders within barker.invite-radius — the barker stops, faces
+#                   them, and calls one of these out (voiced). Per-player cooldown = barker.invite-cooldown.
+# `invite_success`  / `invite_giveup` are used once region/attract logic lands (later phase).
+#
+# Drop the matching clips into the barker's voice/ folder: invite_1..invite_7, welcome_1, giveup_1
+# (.mp3 or .wav). ElevenLabs .mp3 files work directly — just rename them to the clip id.
+
+nodes:
+  crier:
+    triggers: [invite]
+    # Node cooldown = the shortest gap between two calls to the SAME player. The barker's re-greet gap is
+    # the LARGER of this and /lsk barker <id> cooldown <sec>. Keep this ≤ that value (5s here) for a 5s cadence.
+    cooldown: 5s
+    lines:
+      - { text: "ঐ ব্যাডা, হুন! মোর দোহানে একবার আইয়া পড়, জিনিস দেইখ্যা চোখ জুড়াইবো!", voice: invite_1 }
+      - { text: "মোর মালের কতা আর কী কমু — একবার দেখলে যাইতেই মন চাইবো না!", voice: invite_2 }
+      - { text: "কই যাও কই যাও ব্যাডা? মোর দোহান না দেইখ্যা গেলে পরে কপাল চাপড়াইবা!", voice: invite_3 }
+      - { text: "দাম হুইন্যা ডরাইও না, মোর দামে হগলতে হাসতে হাসতে ব্যাগ ভইর‍্যা লইয়া যায়!", voice: invite_4 }
+      - { text: "তাড়াতাড়ি আয়, মাল কিন্তু বেশিক্ষণ থাকবো না — চোখের পলকে শেষ!", voice: invite_5 }
+      - { text: "মু বেবাক পারি, খালি তোরে ঠকাইতে পারি না — আইয়া নিজের চোখে দেখ!", voice: invite_6 }
+      - { text: "আরে আয় আয়, ডরাইতাছ ক্যা? মু তো আর কামড় দিমু না — খালি ভালা মাল দেহামু!", voice: invite_7 }
+
+  welcome:
+    triggers: [invite_success]
+    lines:
+      - { text: "এই তো আইছ! আইয়া পড়ছ যহন, খালি হাতে যাইতে দিমু না!", voice: welcome_1 }
+
+  shrug:
+    triggers: [invite_giveup]
+    lines:
+      - { text: "যাও যাও, ঠ্যাকা পড়লে ঠিকই ফির‍্যা আইবা — মু হেইহানেই আছি!", voice: giveup_1 }
+
+  # --- getting hit. Drop matching clips in voice/: hit_punch_1.., hit_again_1.., hit_weapon_1..,
+  #     flee_1, fightback_1, fight_hit_1, calm_1 (.mp3 or .wav). ---
+  ouch:
+    triggers: [hit_punch]
+    cooldown: 2s
+    lines:
+      - { text: "ঐ! গায়ে হাত দ্যাস ক্যা? মাইনষে দেখলে কী কইবো!", voice: hit_punch_1 }
+      - { text: "আরে আরে! মারলা ক্যা ভাই? মু কি তোমার কোনো ক্ষতি করছি?", voice: hit_punch_2 }
+      - { text: "উহ্‌! এইডা কেমন তামশা? হাত সামলাইয়া রাহো!", voice: hit_punch_3 }
+
+  warned:
+    triggers: [hit_again]
+    cooldown: 2s
+    lines:
+      - { text: "আবার! ঐ ব্যাডা, তোর সাহস তো কম না!", voice: hit_again_1 }
+      - { text: "খবরদার কইতাছি — আর একবার হাত তুললে কিন্তু খবর আছে!", voice: hit_again_2 }
+
+  panicked:
+    triggers: [hit_weapon]
+    cooldown: 2s
+    lines:
+      - { text: "ও মাগো! অস্ত্র লইয়া আইছে! মাইরালাইবো রে!", voice: hit_weapon_1 }
+      - { text: "ঐ ঐ ঐ! তলোয়ার নামা কইতাছি! মু গরিব ব্যবসায়ী মানুষ!", voice: hit_weapon_2 }
+
+  runaway:
+    triggers: [flee]
+    lines:
+      - { text: "বাঁচাও! খুনি! এই ব্যাডায় মোরে মাইরালাইতাছে!", voice: flee_1 }
+
+  enough:
+    triggers: [fightback]
+    lines:
+      - { text: "অনেক সহ্য করছি! আইজ তোর একদিন কি মোর একদিন!", voice: fightback_1 }
+
+  smack:
+    triggers: [fight_hit]
+    cooldown: 4s
+    lines:
+      - { text: "ল! কেমন লাগে এইবার?", voice: fight_hit_1 }
+
+  settle:
+    triggers: [calm]
+    lines:
+      - { text: "হুহ্‌… যাউক গা। কামের সময় নষ্ট।", voice: calm_1 }

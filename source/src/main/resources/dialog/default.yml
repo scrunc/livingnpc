@@ -1,0 +1,84 @@
+# LivingShopkeeper — default dialog (shopkeeper). Copied into a character's dialog/ folder on creation.
+#
+#   APPROACH (walk into range) → the shopkeeper greets you with a spoken line.
+#   RIGHT-CLICK               → opens a conversation MENU (the `menu` node): pick a reply, the NPC
+#                               answers, and an option can `goto` another menu node — a whole tree.
+#
+# Give any option a voice by adding `say: <clip>` + a matching voice/<clip>.(mp3|wav); without a clip it
+# just shows the `line` as a subtitle. `line` = what the NPC says when you pick that option.
+# Triggers: approach · menu.  Placeholders in text: <player> <npc> <time>.
+
+nodes:
+  greet:
+    triggers: [approach]
+    cooldown: 30s
+    lines:
+      - "Welcome, traveler! Take a look around."
+      - "Good <time> to you, <player>."
+      - "Ah, a customer — browse as you like."
+
+  # right-click opens this
+  menu:
+    triggers: [menu]
+    title: "Shopkeeper"
+    options:
+      - { text: "Show me your wares", icon: EMERALD, line: "Right this way — finest goods in the land!", goto: wares }
+      - { text: "Any rumors?",         icon: PAPER,   line: "Rumors? Heh — keep your ear to the ground.", goto: rumors }
+      - { text: "Goodbye",             icon: BARRIER, line: "Safe travels, friend." }
+
+  wares:
+    title: "Wares"
+    options:
+      - { text: "Weapons", icon: IRON_SWORD,      line: "Sharp and true, every blade." }
+      - { text: "Armor",   icon: IRON_CHESTPLATE, line: "Sturdy as a castle wall." }
+      - { text: "Back",    icon: ARROW,           goto: menu }
+
+  rumors:
+    title: "Rumors"
+    options:
+      - { text: "About the mines", icon: GOLD_ORE, line: "They say something stirs deep below." }
+      - { text: "Back",            icon: ARROW,    goto: menu }
+
+  # --- getting hit. Optional voice: add `voice: <clip>` per line + the clip in voice/. Repeated hits
+  #     escalate to flee / fightback per config.yml `combat:` (override: /lsk combat <id> ...). ---
+  ouch:
+    triggers: [hit_punch]
+    cooldown: 2s
+    lines:
+      - "Ow! What was that for?"
+      - "Hey! Hands to yourself, friend."
+
+  warned:
+    triggers: [hit_again]
+    cooldown: 2s
+    lines:
+      - "I'm warning you — do that again and you'll regret it."
+      - "Enough! I mean it!"
+
+  panicked:
+    triggers: [hit_weapon]
+    cooldown: 2s
+    lines:
+      - "A blade?! Guards! GUARDS!"
+      - "Put that away! I'm just a merchant!"
+
+  runaway:
+    triggers: [flee]
+    lines:
+      - "HELP! Murderer! Somebody stop them!"
+
+  enough:
+    triggers: [fightback]
+    lines:
+      - "That's IT. You asked for this!"
+
+  smack:
+    triggers: [fight_hit]
+    cooldown: 4s
+    lines:
+      - "How do YOU like it?!"
+
+  settle:
+    triggers: [calm]
+    lines:
+      - "Hmph. Back to business, then."

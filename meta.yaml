@@ -1,0 +1,78 @@
+name: livingnpc
+license: open                     # original servereer work; dev.servereer.livingshopkeeper
+source: source/                   # gradle (Java 21 toolchain); plain jar, no shaded deps
+status: in-progress               # RENAMED LivingShopkeeper -> LivingNPC (2026-09-06); migrated onto PixelAudio
+group: dev.servereer.livingshopkeeper
+depends: []                       # P0 loads dependency-free (arcadecab precedent); packetevents becomes a `depend` at P1
+soft-depends: [PixelAudio, LivingShopkeeperVoice, voicechat, Vault, PlaceholderAPI]
+authors: [servereer]
+rename: |
+  Renamed LivingShopkeeper -> LivingNPC on 2026-09-06, following the same rule as the Dev's Diary and
+  Jobs->Projects renames: only the IDENTITY moved. Changed — plugin.yml `name`, the jar
+  (LivingNPC-<v>.jar), the data folder (plugins/LivingNPC), the command root (/livingnpc, with lnpc /
+  lsk / livingshopkeeper kept as aliases), the permission root (livingnpc.*) and the PAPI root
+  (%livingnpc_...%). Deliberately UNCHANGED — the Java package dev.servereer.livingshopkeeper, the main
+  class LivingShopkeeperPlugin and every other internal identifier; renaming them churns 36 files for
+  nothing a user can see. Nothing breaks on an existing server: the old data folder is copied to the new
+  one on first enable (copy, not move, so the old one stays as a backup), the legacy permission nodes are
+  declared in plugin.yml as parents that CHILD the new ones so pre-rename LuckPerms grants still work, the
+  livingshopkeeper.shops.<n> cap form is still read, and the %livingshopkeeper_...% expansion is
+  registered alongside the new root.
+
+audio: |
+  Migrated off its own voicecore sibling onto the SHARED PixelAudio plugin (2026-09-06) — the first
+  consumer to move, so pixelaudio's "no consumer migrated yet" note is now stale. The plugin talks to its
+  own AudioCore interface; AudioCores.resolve() prefers PixelAudio and falls back to the
+  LivingShopkeeperVoice service, and every foreign type is confined to PixelAudioSource /
+  VoiceCoreSource, only ever touched after an isPluginEnabled() STRING check (the ADR 0035 rule — naming
+  the class first would throw NoClassDefFoundError before any null guard could return, which is exactly
+  how the voicecore failed on Deving). Voice now uses AudioMode.SPEECH explicitly.
+
+description: |
+  Voiced, memory-keeping NPC merchants for Paper 1.21.11. Server owners author
+  packet-NPC shopkeepers, their shops, and a large branching DIALOG bank entirely
+  in YAML. Each shopkeeper is drawn to nearby players over packets (ZNPCsPlus /
+  MachineConstruct pattern — no real entity), tracks the nearest listener, and
+  SPEAKS through Simple Voice Chat on a locational channel at its position
+  (VideoWall's audio spine). The voice bank is pre-generated OFFLINE from the
+  dialog text by a stuffmaker tool (Piper TTS) and shipped as compact .ogg — the
+  game server only decodes + plays, never synthesizes. Buying, selling, haggling,
+  greetings, idle barks and lore are dialog triggers; per-player memory, reputation
+  and mood make the same shopkeeper feel alive and different each visit. SVC is a
+  soft-depend: without it everything works, the NPC is just silent.
+
+design: DESIGN.md                 # architecture spine + phase plan
+adr: ../../ai-continue/decisions/0029-livingshopkeeper-voiced-npc-merchant.md
+
+decisions:                        # the three locked forks (2026-07-12)
+  voice-source: >
+    offline Piper bank (stuffmaker/shopkeepervoicegen); ship .ogg, play only.
+    Dynamic values (price, player name) go in the SUBTITLE, not the voiced audio.
+  npc-body: >
+    packet NPC (player-skinned, no real entity); reuse MC packet layer + tracking
+    and an offline-safe skin cache.
+  two-way-voice: >
+    OUT-OF-SCOPE for v1; player replies via GUI/chat choices. Mic-in -> offline
+    Vosk STT -> intent is the P9 stretch.
+
+phases:
+  - P0 (now): scaffold — gradlew + plugin.yml + config.yml + /lsk bootstrap; loads clean on umbralcraft
+  - P1: packet-NPC body + skin cache + interaction listener + look-at + /lsk create
+  - P2: voice playback — port VoiceChatAudio + VoiceBank (decode-once/cache) + SpeechSession; speak on approach
+  - P3: DialogEngine — YAML nodes/triggers/weighted+cooldown+conditional lines + subtitles + choices
+  - P4: shop GUI + Vault transactions + stock; buy/sell/fail dialog hooks
+  - P5: RelationshipStore + memory + reputation ladder (pluggable sqlite/json)
+  - P6: MoodModel + haggling + emotes (head-nods / particles / villager sounds)
+  - P7: stuffmaker/shopkeepervoicegen — offline Piper voice-bank generator + author/reload workflow
+  - P8 (stretch): schedules/wander, cross-NPC gossip, PixelProfiler prices.yml hook, MachineConstruct buyable-shopkeeper tie-in
+  - P9 (stretch): two-way voice — SVC mic capture -> offline Vosk STT -> intent -> dialog branch
+
+reuse:
+  - plugin_customized/videowall/source/.../audio/VoiceChatAudio.java             # locational SVC channel + stop handle (port)
+  - plugin_customized/machineconstruct/source/.../audio/{TrackIngest,AudioTrack}.java  # ogg -> 48k mono PCM frames
+  - MachineConstruct packet-display + viewer seen-set tracking                    # packet-NPC render/track pattern
+  - pixel-profiler offline-safe skin cache                                        # player-skin textures without live Mojang calls
+  - stuffmaker (ADR 0027)                                                         # offline generator ethos for the voice bank
+
+deploy:
+  test: umbralcraft (local)       # P0 target: PlugMan-load, confirm clean enable

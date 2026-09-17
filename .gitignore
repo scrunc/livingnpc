@@ -1,0 +1,12 @@
+# Gradle build outputs + caches (keep the source + the gradle-wrapper jar)
+source/.gradle/
+source/build/
+source/*/build/
+.gradle/
+build/
+
+# IDE bin directories
+source/bin/
+bin/
+.idea/
+*.iml

@@ -1,0 +1,16 @@
+# LivingShopkeeper — default LOBBY dialog (copied into a lobby NPC's dialog/ folder on creation).
+#
+# A lobby NPC roams/sits near its post and RUNS back when a player steps within lobby.trigger-radius
+# of the post; on arrival it waves and fires `greet`. Clicking it (body or floating tag) runs its
+# `actions` (/lsk action <id> add player:/warps …) — dialog is optional flavor on top.
+#
+# Optional voice: add `voice: <clip>` per line + the clip in the character's voice/ folder.
+
+nodes:
+  greet:
+    triggers: [greet]
+    cooldown: 20s
+    lines:
+      - "Welcome, <player>!"
+      - "Good <time>! Click me to have a look."
+      - "Right this way — click me anytime."

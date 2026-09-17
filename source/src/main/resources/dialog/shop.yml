@@ -1,0 +1,82 @@
+# LivingShopkeeper — default SHOP dialog (copied into a shop NPC's dialog/ folder on creation).
+#
+# The owner edits these from the shop's Dialogue menu (Greeting/Thanks/Call/When-hit); once they save a
+# category, their lines OVERRIDE the ones here for that trigger. Colours: & / &#hex / MiniMessage.
+# Triggers: `greet` (a customer walks into the shop), `interact` (opening the shop — rate-limited patter),
+# `thanks` (right after a purchase), `hawk` (calling wares out to passers-by; needs Hawk behaviour on),
+# `hit` (someone punches the keeper), `farewell` (a buyer leaves), `gossip` (idle chat with a neighbour).
+# Optional voice: add `voice: <clip>` per line + the clip in the character's voice/ folder (.mp3/.wav).
+
+nodes:
+  greet:
+    triggers: [greet]
+    cooldown: 25s
+    lines:
+      - "<yellow>Welcome in, <white><player></white>! Feast your eyes — best deals on the street."
+      - "<yellow>Ah, <white><player></white>! Perfect timing, I just restocked."
+      - "<gold>Step right up, step right up!</gold> Nothing but the good stuff here."
+      - "Good <time>, <player>! Coin in your pocket, wares on my shelf — let's talk."
+      - "<yellow>A discerning customer, I can tell!</yellow> Come, come, have a look."
+      - "You've got the look of someone who appreciates <italic>quality</italic>, <player>."
+
+  patter:
+    triggers: [interact]
+    cooldown: 30s
+    lines:
+      - "<gray>Take your time — everything here's the real deal.</gray>"
+      - "See something you like? I don't haggle, but I don't gouge either."
+      - "Fresh stock in, prices sharp. Your loss if you walk past."
+      - "Go on, have a proper look. I'll not rush a paying customer."
+      - "<italic>Between you and me,</italic> these prices won't last the week."
+      - "Everything you see, I'd buy myself. That's my promise."
+
+  thanks:
+    triggers: [thanks]
+    cooldown: 6s
+    lines:
+      - "<green>Pleasure doing business, <white><player></white>!</green>"
+      - "A fine choice! You've got good taste."
+      - "<green>Sold!</green> You won't find better, I'll tell you that."
+      - "Cha-ching! Come back any time, <player>."
+      - "Wrapped and yours. Spend it in good health!"
+      - "Now THAT'S a smart purchase. Anything else catch your eye?"
+
+  hawk:
+    triggers: [hawk]
+    cooldown: 20s
+    lines:
+      - "<gold>Oi, <white><player></white>!</gold> Don't walk past a bargain like this!"
+      - "<yellow>Fresh wares, fair prices — right here, right now!</yellow>"
+      - "You there, <player>! Yes you — come see what I've got!"
+      - "<gold>Best prices on the block, and that's no market talk!</gold>"
+      - "Roll up, <player>, roll up! Deals like these don't wait."
+
+  hit:
+    triggers: [hit]
+    cooldown: 4s
+    lines:
+      - "<red>Oi! Hands off the merchandise, <white><player></white>!</red>"
+      - "That's no way to treat an honest trader!"
+      - "<red>Hit me again and you're barred, I mean it!</red>"
+      - "Careful! One more and the guards hear about this."
+      - "I sell goods, not grief — knock it off!"
+
+  goodbye:
+    triggers: [farewell]
+    cooldown: 30s
+    lines:
+      - "Come again, <player> — tell your friends where you got it!"
+      - "Safe travels! My door's always open."
+      - "Off already? Bah. You know where to find me, <player>."
+      - "Pleasure as always. Mind how you go!"
+
+  chatter:
+    triggers: [gossip]
+    cooldown: 12s
+    lines:
+      - "Slow trade today… all the coin's up at the auction house, I reckon."
+      - "You would NOT believe what someone tried to barter me this morning."
+      - "Fine <time> for business, wouldn't you say?"
+      - "Heard the adventurers cleaned out the deep mines again. Prices'll climb."
+      - "My feet are killing me, but the shelf won't stock itself."
+      - "Swear that lot next door's been undercutting me all week."

@@ -1,0 +1,66 @@
+name: LivingNPC
+version: ${version}
+main: dev.servereer.livingshopkeeper.LivingShopkeeperPlugin
+api-version: '1.21'
+author: servereer
+description: Voiced, memory-keeping NPC characters — packet-NPC shopkeepers, barkers and lobby hosts that speak via Simple Voice Chat and haggle from a YAML dialog bank.
+# Renamed from LivingShopkeeper (6-Sep-2026). Following the same rule as the Dev's Diary and Jobs→Projects
+# renames, only the IDENTITY moved: plugin name, jar, data folder, command and permission root. The Java
+# package (dev.servereer.livingshopkeeper) is deliberately unchanged — renaming it would churn 36 files for
+# nothing a user can see. The data folder is migrated from plugins/LivingShopkeeper on first enable, and the
+# old command labels and permission nodes still work (see aliases and the legacy nodes below).
+#
+# packet-NPC bodies need PacketEvents (hard). NPC voice goes through an audio core — PixelAudio by
+# preference, or the older LivingShopkeeperVoice sibling — both SOFT depends so this plugin can be
+# PlugMan-reloaded on its own even when no core is loaded (it just runs silent then). When a core IS
+# present it loads first (soft-depend load order) and voice survives every reload of this plugin.
+# SVC/Vault/PAPI stay soft too.
+depend: [packetevents]
+softdepend: [PixelAudio, LivingShopkeeperVoice, voicechat, Vault, PlaceholderAPI]
+# Runtime-loaded by Paper from Maven Central — pure-Java MP3 decoder for ElevenLabs .mp3 voice clips.
+libraries:
+  - "com.googlecode.soundlibs:jlayer:1.0.1.4"
+commands:
+  livingnpc:
+    description: LivingNPC admin/info.
+    usage: "/livingnpc create <id> [barker] [skin] | remove | list | tp | skin <id> <name|url …|value …> | barker <id> cooldown <sec> | reload | version"
+    aliases: [lnpc, lsk, livingshopkeeper]
+permissions:
+  livingnpc.admin:
+    description: Manage NPCs, dialog and config.
+    default: op
+  livingnpc.use:
+    description: Interact with NPCs.
+    default: true
+  livingnpc.shop.create:
+    description: Place a personal shop with the shop creation item.
+    default: true
+  livingnpc.shops.unlimited:
+    description: Bypass the per-player shop cap entirely.
+    default: false
+  # Per-rank shop caps: grant livingnpc.shops.<n> (e.g. livingnpc.shops.5) to raise a rank's limit to n.
+  # Highest granted node wins; falls back to config shop.max-per-player. livingnpc.shops.unlimited removes
+  # the cap. The legacy livingshopkeeper.shops.<n> form is still read, so existing LuckPerms grants stand.
+  #
+  # Legacy roots, kept so ranks granted before the rename keep working. Each one CHILDS the new node, so a
+  # player holding the old permission is granted the new one automatically — no LuckPerms edit needed.
+  livingshopkeeper.admin:
+    description: Legacy alias of livingnpc.admin.
+    default: false
+    children:
+      livingnpc.admin: true
+  livingshopkeeper.use:
+    description: Legacy alias of livingnpc.use.
+    default: false
+    children:
+      livingnpc.use: true
+  livingshopkeeper.shop.create:
+    description: Legacy alias of livingnpc.shop.create.
+    default: false
+    children:
+      livingnpc.shop.create: true
+  livingshopkeeper.shops.unlimited:
+    description: Legacy alias of livingnpc.shops.unlimited.
+    default: false
+    children:
+      livingnpc.shops.unlimited: true

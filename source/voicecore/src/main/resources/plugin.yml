@@ -1,0 +1,9 @@
+name: LivingShopkeeperVoice
+version: ${version}
+main: dev.servereer.livingshopkeeper.voice.LivingShopkeeperVoicePlugin
+api-version: '1.21'
+author: servereer
+description: Persistent audio core for LivingShopkeeper — holds the Simple Voice Chat connection in its own classloader so the main plugin can PlugMan-reload without muting NPCs.
+# Soft, not hard: the core still loads (and publishes the VoiceCore service) even if SVC is absent — it's
+# just silent then. softdepend also makes it load AFTER voicechat, so SVC's service is ready to register with.
+softdepend: [voicechat]
