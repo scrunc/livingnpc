@@ -13,7 +13,9 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.HashMap;
@@ -50,12 +52,47 @@ public final class SeatWandListener implements Listener {
         binding.put(editor.getUniqueId(), "space:" + spaceId.toLowerCase(Locale.ROOT));
     }
 
+    /** Unbind this player from seat wand mode. */
+    public void unbind(Player editor) {
+        binding.remove(editor.getUniqueId());
+    }
+
+    /** Whether this player is currently in seat wand mode. */
+    public boolean isBound(Player editor) {
+        return binding.containsKey(editor.getUniqueId());
+    }
+
+    /** Whether this player is currently in seat wand mode for characterId. */
+    public boolean isBound(Player editor, String characterId) {
+        String bound = binding.get(editor.getUniqueId());
+        return bound != null && bound.equalsIgnoreCase("char:" + characterId.toLowerCase(Locale.ROOT));
+    }
+
     /** The wand item for this character's type (shops use their own, default golden sword). */
     public Material wandItem(Character c) {
         String key = c != null && c.type() == CharacterType.SHOP ? "shop.seat-wand" : "lobby.seat-wand";
-        String def = c != null && c.type() == CharacterType.SHOP ? "GOLDEN_SWORD" : "BLAZE_ROD";
-        Material m = Material.matchMaterial(plugin.getConfig().getString(key, def).toUpperCase(Locale.ROOT));
-        return m == null ? Material.BLAZE_ROD : m;
+        String def = c != null && c.type() == CharacterType.SHOP ? "AIR" : "BLAZE_ROD";
+        String raw = plugin.getConfig().getString(key, def);
+        // Treat legacy "GOLDEN_SWORD" default as AIR for shops so existing config files safely transition to virtual mode
+        if (raw == null || "NONE".equalsIgnoreCase(raw) || "HAND".equalsIgnoreCase(raw) || "AIR".equalsIgnoreCase(raw)
+                || (c != null && c.type() == CharacterType.SHOP && "GOLDEN_SWORD".equalsIgnoreCase(raw))) {
+            return Material.AIR;
+        }
+        Material m = Material.matchMaterial(raw.toUpperCase(Locale.ROOT));
+        return m == null ? (c != null && c.type() == CharacterType.SHOP ? Material.AIR : Material.BLAZE_ROD) : m;
+    }
+
+    /** Whether the player is holding the required wand item or using a bare hand (virtual wand). */
+    public boolean isWandAllowed(Player p, Character c) {
+        Material wand = wandItem(c);
+        ItemStack inHand = p.getInventory().getItemInMainHand();
+        if (inHand.getType().isAir()) return true;
+        return wand != null && !wand.isAir() && inHand.getType() == wand;
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent e) {
+        binding.remove(e.getPlayer().getUniqueId());
     }
 
     /** May {@code p} edit seats of {@code c}? Admins always; shop owners their own shop. */
@@ -66,10 +103,18 @@ public final class SeatWandListener implements Listener {
 
     @EventHandler
     public void onInteract(PlayerInteractEvent e) {
-        if (e.getAction() != Action.RIGHT_CLICK_BLOCK || e.getHand() != EquipmentSlot.HAND) return;
         Player p = e.getPlayer();
         String bound = binding.get(p.getUniqueId());
         if (bound == null) return;
+
+        // Left-click air exits seat mode cleanly
+        if (e.getAction() == Action.LEFT_CLICK_AIR) {
+            binding.remove(p.getUniqueId());
+            p.sendMessage(Component.text("Exited seat mode.", NamedTextColor.YELLOW));
+            return;
+        }
+
+        if (e.getAction() != Action.RIGHT_CLICK_BLOCK || e.getHand() != EquipmentSlot.HAND) return;
         if (bound.startsWith("space:")) {
             onSpaceClick(e, p, bound.substring("space:".length()));
             return;
@@ -80,7 +125,7 @@ public final class SeatWandListener implements Listener {
             binding.remove(p.getUniqueId());
             return;
         }
-        if (p.getInventory().getItemInMainHand().getType() != wandItem(c)) return;
+        if (!isWandAllowed(p, c)) return;
         Block b = e.getClickedBlock();
         if (b == null) return;
         e.setCancelled(true);
@@ -135,7 +180,9 @@ public final class SeatWandListener implements Listener {
         }
         Material wand = Material.matchMaterial(
                 plugin.getConfig().getString("lobby.seat-wand", "BLAZE_ROD").toUpperCase(Locale.ROOT));
-        if (p.getInventory().getItemInMainHand().getType() != (wand == null ? Material.BLAZE_ROD : wand)) return;
+        ItemStack inHand = p.getInventory().getItemInMainHand();
+        boolean matches = inHand.getType().isAir() || (wand != null && !wand.isAir() && inHand.getType() == wand);
+        if (!matches) return;
         Block b = e.getClickedBlock();
         if (b == null) return;
         e.setCancelled(true);

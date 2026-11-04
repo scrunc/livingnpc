@@ -15,7 +15,7 @@ description: Voiced, memory-keeping NPC characters — packet-NPC shopkeepers, b
 # PlugMan-reloaded on its own even when no core is loaded (it just runs silent then). When a core IS
 # present it loads first (soft-depend load order) and voice survives every reload of this plugin.
 # SVC/Vault/PAPI stay soft too.
-depend: [packetevents]
+depend: [packetevents, PiCore]
 softdepend: [PixelAudio, LivingShopkeeperVoice, voicechat, Vault, PlaceholderAPI]
 # Runtime-loaded by Paper from Maven Central — pure-Java MP3 decoder for ElevenLabs .mp3 voice clips.
 libraries:

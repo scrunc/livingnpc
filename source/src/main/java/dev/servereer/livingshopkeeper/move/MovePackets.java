@@ -38,11 +38,38 @@ public final class MovePackets {
         return Math.abs(dx) < MAX_STEP && Math.abs(dy) < MAX_STEP && Math.abs(dz) < MAX_STEP;
     }
 
-    /** Absolute reposition for jumps &gt; ~8 blocks (waypoint snap / respawn). */
+    /**
+     * Absolute reposition for jumps &gt; ~8 blocks (waypoint snap / respawn / periodic resync).
+     *
+     * <p>On 1.21.2+ clients this MUST be the entity <b>position-sync</b> packet, not the teleport packet: relative
+     * moves are added to a per-entity base position on the client, and only position-sync resets that base. A
+     * teleport snaps the entity but leaves the base where it was, so the next relative move puts it back at
+     * old-base + step and from then on it walks a parallel path, offset by the jump (bot skins "hitting from far
+     * away" / "through walls" after a round reset).
+     */
     public static void teleport(Player viewer, int entityId, double x, double y, double z,
                                 float yaw, float pitch, boolean onGround) {
-        send(viewer, new WrapperPlayServerEntityTeleport(entityId, new Location(x, y, z, yaw, pitch), onGround));
+        if (POSITION_SYNC) {
+            send(viewer, new com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerEntityPositionSync(entityId,
+                    new com.github.retrooper.packetevents.protocol.entity.EntityPositionData(
+                            new com.github.retrooper.packetevents.util.Vector3d(x, y, z),
+                            new com.github.retrooper.packetevents.util.Vector3d(0, 0, 0), yaw, pitch), onGround));
+        } else {
+            send(viewer, new WrapperPlayServerEntityTeleport(entityId, new Location(x, y, z, yaw, pitch), onGround));
+        }
         send(viewer, new WrapperPlayServerEntityHeadLook(entityId, yaw));
+    }
+
+    /** 1.21.2+ has the position-sync packet (looked up by name so an older packetevents still links). */
+    private static final boolean POSITION_SYNC = detectPositionSync();
+
+    private static boolean detectPositionSync() {
+        try {
+            return PacketEvents.getAPI().getServerManager().getVersion()
+                    .isNewerThanOrEquals(com.github.retrooper.packetevents.manager.server.ServerVersion.valueOf("V_1_21_2"));
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     private static void send(Player viewer, PacketWrapper<?> wrapper) {

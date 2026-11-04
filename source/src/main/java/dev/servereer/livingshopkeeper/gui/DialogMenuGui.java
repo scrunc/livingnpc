@@ -9,26 +9,22 @@ import dev.servereer.livingshopkeeper.dialog.DialogText;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
-import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.illustro.picore.menu.PiButton;
+import org.illustro.picore.menu.PiMenu;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * The click-to-talk conversation menu: right-clicking a character opens a GUI of selectable replies
  * (a {@link DialogNode} with {@code options:}). Picking one speaks the NPC's line (voice + subtitle) and
  * either {@code goto}s the next menu node — walking a conversation tree — or closes.
+ * Powered by PiCore universal menu framework.
  */
 public final class DialogMenuGui implements Listener {
 
@@ -48,19 +44,46 @@ public final class DialogMenuGui implements Listener {
         Component title = node.title != null
                 ? DialogText.render(node.title, p.getName(), sp.name(), sp.world())
                 : DialogText.name(sp.name() == null ? "Shopkeeper" : sp.name(), NamedTextColor.DARK_AQUA);
-        Holder h = new Holder(sp, node);
-        Inventory inv = Bukkit.createInventory(h, rows * 9, title);
+
+        PiMenu menu = PiMenu.create(title, rows);
+
         for (int i = 0; i < opts.size() && i < rows * 9; i++) {
             DialogNode.Option o = opts.get(i);
             // Button labels support MiniMessage colour/format; a <click:…> on a GUI item name has no effect
             // (you click the item, not text) — put clickable links in the option's `line:` reply instead.
             Component label = DialogText.render(o.label, p.getName(), sp.name(), sp.world())
                     .decoration(TextDecoration.ITALIC, false);
-            inv.setItem(i, item(o, label));
-            h.slotOpt.put(i, o);
+            ItemStack icon = item(o, label);
+
+            PiButton btn = PiButton.create(icon).onClick((player, event) -> {
+                // the NPC replies (voice from its position + subtitle). The reply is chat, so <click:open_url:'…'> works.
+                if (o.line != null && !o.line.isBlank()) {
+                    player.sendMessage(DialogText.name(sp.name() == null ? "Shopkeeper" : sp.name(), NamedTextColor.GOLD)
+                            .append(Component.text(": ", NamedTextColor.GRAY))
+                            .append(DialogText.render(o.line, player.getName(), sp.name(), sp.world())));
+                }
+                if (o.voice != null && !o.voice.isBlank() && speech != null) {
+                    speech.speak(sp.key(), sp.world(), sp.x(), sp.y(), sp.z(), sp.character() + "/" + o.voice);
+                }
+
+                // navigate the tree
+                DialogNode next = null;
+                if (o.next != null) {
+                    DialogPack pack = library.pack(sp.character());
+                    if (pack != null) next = pack.node(o.next);
+                }
+                if (next != null && next.isMenu()) {
+                    DialogNode target = next;
+                    open(player, sp, target);
+                } else {
+                    player.closeInventory();
+                }
+            });
+
+            menu.button(i, btn);
         }
-        h.inv = inv;
-        p.openInventory(inv);
+
+        menu.open(p);
     }
 
     private static ItemStack item(DialogNode.Option o, Component label) {
@@ -71,55 +94,5 @@ public final class DialogMenuGui implements Listener {
             it.setItemMeta(m);
         }
         return it;
-    }
-
-    @EventHandler
-    public void onClick(InventoryClickEvent e) {
-        if (!(e.getView().getTopInventory().getHolder() instanceof Holder h)) return;
-        e.setCancelled(true);
-        if (e.getClickedInventory() != e.getView().getTopInventory()) return;
-        if (!(e.getWhoClicked() instanceof Player p)) return;
-        DialogNode.Option o = h.slotOpt.get(e.getRawSlot());
-        if (o == null) return;
-
-        // the NPC replies (voice from its position + subtitle). The reply is chat, so <click:open_url:'…'> works.
-        if (o.line != null && !o.line.isBlank()) {
-            p.sendMessage(DialogText.name(h.sp.name() == null ? "Shopkeeper" : h.sp.name(), NamedTextColor.GOLD)
-                    .append(Component.text(": ", NamedTextColor.GRAY))
-                    .append(DialogText.render(o.line, p.getName(), h.sp.name(), h.sp.world())));
-        }
-        if (o.voice != null && !o.voice.isBlank() && speech != null) {
-            speech.speak(h.sp.key(), h.sp.world(), h.sp.x(), h.sp.y(), h.sp.z(), h.sp.character() + "/" + o.voice);
-        }
-
-        // navigate the tree
-        DialogNode next = null;
-        if (o.next != null) {
-            DialogPack pack = library.pack(h.sp.character());
-            if (pack != null) next = pack.node(o.next);
-        }
-        if (next != null && next.isMenu()) {
-            DialogNode target = next;
-            Bukkit.getScheduler().runTask(plugin, () -> open(p, h.sp, target));   // reopen next tick (safe)
-        } else {
-            p.closeInventory();
-        }
-    }
-
-    private static final class Holder implements InventoryHolder {
-        final DialogEngine.Speaker sp;
-        final DialogNode node;
-        final Map<Integer, DialogNode.Option> slotOpt = new HashMap<>();
-        Inventory inv;
-
-        Holder(DialogEngine.Speaker sp, DialogNode node) {
-            this.sp = sp;
-            this.node = node;
-        }
-
-        @Override
-        public Inventory getInventory() {
-            return inv;
-        }
     }
 }

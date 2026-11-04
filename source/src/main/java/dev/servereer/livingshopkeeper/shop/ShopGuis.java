@@ -15,19 +15,17 @@ import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.inventory.ClickType;
-import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
-import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Merchant;
 import org.bukkit.inventory.MerchantInventory;
 import org.bukkit.inventory.MerchantRecipe;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.illustro.picore.menu.PiButton;
+import org.illustro.picore.menu.PiMenu;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -41,16 +39,14 @@ import java.util.UUID;
  *   <li><b>Customers</b> get the real vanilla villager trading window (a virtual {@link Merchant}) —
  *       every trade in the scrollable list, out-of-stock trades greyed out. Stock movement for
  *       player shops happens in {@link #onPurchase} against the linked chest.</li>
- *   <li><b>Owners</b> get a Shopkeepers-style trade editor: each column is one trade — top row the
- *       item sold, the two rows below its costs — with pages for up to
+ *   <li><b>Owners</b> get a Shopkeepers-style trade editor powered by PiCore: each column is one trade —
+ *       top row the item sold, the two rows below its costs — with pages for up to
  *       {@code shop.max-trade-pages}×9 trades, plus a main menu and an AI behavior toggle menu.</li>
  * </ul>
  *
- * <p><b>Dupe-proofing:</b> every {@code InventoryClickEvent} and {@code InventoryDragEvent} touching a
- * view with our holder is cancelled outright, then re-interpreted as a button press. Items are never
- * moved, only <i>copied as templates</i> (click an item in your own inventory → a copy appears in the
- * editor). Nothing real ever enters the top inventory, so there is nothing to steal, rake with a
- * double-click, hotbar-swap, or drop. The merchant window is vanilla logic on the player's own items.
+ * <p><b>Dupe-proofing:</b> Managed by PiCore's {@code PiMenuGuard}. Real items can never enter
+ * the GUI; template slots copy cursor items safely; cross-inventory shift-clicks and double-click
+ * item raking are strictly prevented.
  */
 public final class ShopGuis implements Listener {
 
@@ -75,8 +71,6 @@ public final class ShopGuis implements Listener {
             {"hit", 16, "When hit", "Grumbled if someone punches the shopkeeper."},
     };
 
-    private enum View { MAIN, EDITOR, BEHAVIOR, CUSTOMER, DIALOGUE, OUTINGS, LIST }
-
     private final JavaPlugin plugin;
     private final CharacterManager manager;
     private final ShopEngine engine;
@@ -93,23 +87,6 @@ public final class ShopGuis implements Listener {
         this.engine = engine;
         this.seatWand = seatWand;
         this.settings = settings;
-    }
-
-    private final class Holder implements InventoryHolder {
-        Inventory inv;
-        String shopId;
-        View view;
-        int page;                            // editor page (9 trades per page)
-        final ItemStack[] col = new ItemStack[27];   // editor templates: 0-8 result, 9-17 cost1, 18-26 cost2
-        boolean warnedCostless;              // one nag per editor visit about result-without-cost columns
-        long deleteArmedAt;                  // two-click delete confirmation
-        String listKey;                      // LIST view: "tag" or a dialogue trigger (interact/thanks/…)
-        final Map<Integer, String> spaceSlot = new HashMap<>();   // OUTINGS view: slot → space id
-
-        @Override
-        public Inventory getInventory() { return inv; }
-
-        Character shop() { return manager.get(shopId); }
     }
 
     private record MerchantSession(String shopId, List<ShopTrade> trades) {
@@ -136,12 +113,106 @@ public final class ShopGuis implements Listener {
     // --- opening views ------------------------------------------------------
 
     public void openMain(Player p, Character c) {
-        Holder h = new Holder();
-        h.shopId = c.getId();
-        h.view = View.MAIN;
-        h.inv = Bukkit.createInventory(h, 27, Component.text("Shop — " + plainName(c), NamedTextColor.DARK_GREEN));
-        renderMain(h, c);
-        p.openInventory(h.inv);
+        PiMenu menu = PiMenu.create(Component.text("Shop — " + plainName(c), NamedTextColor.DARK_GREEN), 3);
+        menu.fill(pane(Material.GRAY_STAINED_GLASS_PANE));
+
+        menu.button(MAIN_OPEN, PiButton.create(Material.EMERALD, "<green><b>Open shop</b></green>",
+                "Trade with your own shop", "exactly like a customer sees it.")
+                .onClick((player, e) -> openCustomer(player, c)));
+
+        menu.button(MAIN_TRADES, PiButton.create(Material.WRITABLE_BOOK, "<yellow><b>Edit trades</b></yellow>",
+                "Each column is one trade:", "top = item sold, below = its costs.",
+                c.trades().size() + " of " + capacity() + " trades set.")
+                .onClick((player, e) -> openTrades(player, c)));
+
+        menu.button(MAIN_DIALOGUE, PiButton.create(Material.OAK_SIGN, "<gold><b>Dialogue</b></gold>",
+                "Edit what your shopkeeper says:", "greetings, thanks, calls, and more.",
+                "Colors with & codes or &#hex work.")
+                .onClick((player, e) -> openDialogue(player, c)));
+
+        menu.button(MAIN_BEHAVIOR, PiButton.create(Material.LEAD, "<aqua><b>Behavior</b></aqua>",
+                "Toggle what your shopkeeper does", "while idle: roam, sit, gossip,", "hawk wares at passers-by.")
+                .onClick((player, e) -> openBehavior(player, c)));
+
+        menu.button(MAIN_OUTINGS, PiButton.create(Material.CLOCK, "<light_purple><b>Outings</b></light_purple>",
+                "Let it wander off to hangout spaces", "(off by default). Choose which",
+                "spaces it's allowed to visit.")
+                .onClick((player, e) -> openOutings(player, c)));
+
+        menu.button(MAIN_SEATS, PiButton.create(Material.OAK_STAIRS, "<gold><b>Seat mode</b></gold>",
+                "Toggle seat mode on / off.",
+                "With an empty hand, right-click slabs/stairs",
+                "to mark sit spots (" + c.seats().size() + " set).",
+                "Click a marked seat again = PRIORITY seat",
+                "(it sits there for customers). Sneak-click removes.",
+                "Left-click air to finish.")
+                .onClick((player, e) -> {
+                    player.closeInventory();
+                    if (seatWand.isBound(player, c.getId())) {
+                        seatWand.unbind(player);
+                        player.sendMessage(Component.text("Exited seat mode for '" + c.getId() + "'.", NamedTextColor.YELLOW));
+                        return;
+                    }
+                    seatWand.bind(player, c.getId());
+                    player.sendMessage(Component.text("Seat mode: with an empty hand, right-click slabs/stairs to mark sit spots ("
+                            + c.seats().size() + " set).", NamedTextColor.GOLD));
+                    player.sendMessage(Component.text("Click a marked seat again = priority seat. Sneak-click removes. Left-click air to finish.", NamedTextColor.GRAY));
+                }));
+
+        List<String> info = new ArrayList<>();
+        info.add((c.owner() != null ? "Your shop" : "Admin shop (infinite stock)"));
+        info.add("Trades: " + c.trades().size());
+        if (c.container() != null) {
+            int[] at = c.container();
+            info.add("Stock chest: " + at[0] + ", " + at[1] + ", " + at[2]);
+            info.add("Keep it stocked — sold items leave it,");
+            info.add("payments arrive into it.");
+        }
+        menu.button(MAIN_INFO, PiButton.create(Material.PAPER, "<aqua><b>How it works</b></aqua>", info.toArray(new String[0])));
+
+        menu.button(MAIN_MOVE, PiButton.create(Material.ENDER_PEARL, "<light_purple><b>Move shopkeeper here</b></light_purple>",
+                "Stand where it should stand,", "then click this.")
+                .onClick((player, e) -> moveShopHere(player, c)));
+
+        if (c.owner() != null) {
+            menu.button(MAIN_CHEST, PiButton.create(Material.CHEST, "<yellow><b>Move stock chest</b></yellow>",
+                    "Then right-click the NEW chest", "to link it.")
+                    .onClick((player, e) -> settings.begin(player, c, ShopSettings.Mode.CHEST)));
+        }
+
+        menu.button(MAIN_NAMETAG, PiButton.create(Material.OAK_HANGING_SIGN, "<yellow><b>Nametag</b></yellow>",
+                "Floating text above the shopkeeper", "(none by default). Add/remove lines;",
+                c.hasTag() ? c.tagLines().size() + " line(s) set." : "no lines set.")
+                .onClick((player, e) -> openLineList(player, c, "tag")));
+
+        menu.button(MAIN_RENAME, PiButton.create(Material.NAME_TAG, "<yellow><b>Rename</b></yellow>",
+                "Type the new name in chat", "(& / &#hex / MiniMessage colors).")
+                .onClick((player, e) -> settings.begin(player, c, ShopSettings.Mode.RENAME)));
+
+        menu.button(MAIN_SKIN, PiButton.create(Material.PLAYER_HEAD, "<yellow><b>Change skin</b></yellow>",
+                "Left-click: type a player name in chat.", "Right-click: use YOUR skin.")
+                .onLeftClick((player, e) -> settings.begin(player, c, ShopSettings.Mode.SKIN))
+                .onRightClick((player, e) -> {
+                    manager.applySkin(c, player.getName());
+                    player.sendMessage(Component.text("Shopkeeper now wears your skin.", NamedTextColor.GREEN));
+                }));
+
+        // Inline Two-Step Auto-Expiring Delete Confirmation via PiButton.confirm(...)
+        menu.button(MAIN_DELETE, PiButton.confirm(
+                Material.BARRIER,
+                "<red><b>Delete shop</b></red>",
+                List.of("&7Click TWICE to remove this", "&7shopkeeper. Chest items stay put."),
+                Material.BARRIER,
+                "<dark_red><b>REALLY delete?</b></dark_red>",
+                List.of("&cClick again within 5 seconds", "&cto remove this shopkeeper."),
+                5,
+                (player, e) -> {
+                    player.closeInventory();
+                    manager.removeShopViaGui(player, c.getId());
+                }
+        ));
+
+        menu.open(p);
     }
 
     /** What a customer sees: the vanilla villager trade window (or the legacy grid via config). */
@@ -169,153 +240,80 @@ public final class ShopGuis implements Listener {
         p.openMerchant(m, true);
     }
 
-    private void openEditor(Player p, Holder from, int page) {
-        Character c = from.shop();
-        if (c == null) { p.closeInventory(); return; }
-        Holder h = new Holder();
-        h.shopId = c.getId();
-        h.view = View.EDITOR;
-        h.page = Math.max(0, Math.min(page, pages() - 1));
-        loadEditor(h, c);
-        h.inv = Bukkit.createInventory(h, 54, Component.text("Trades — " + plainName(c)
-                + "  (page " + (h.page + 1) + "/" + pages() + ")", NamedTextColor.DARK_GREEN));
-        renderEditor(h, c);
-        p.openInventory(h.inv);
-    }
-
-    private void openBehavior(Player p, Holder from) {
-        Character c = from.shop();
-        if (c == null) { p.closeInventory(); return; }
-        Holder h = new Holder();
-        h.shopId = c.getId();
-        h.view = View.BEHAVIOR;
-        h.inv = Bukkit.createInventory(h, 27, Component.text("Behavior — " + plainName(c), NamedTextColor.DARK_GREEN));
-        renderBehavior(h, c);
-        p.openInventory(h.inv);
-    }
-
-    /** Open the trade editor straight away (used by the owner's sneak-right-click shortcut). */
     public void openTrades(Player p, Character c) {
-        Holder from = new Holder();
-        from.shopId = c.getId();
-        openEditor(p, from, 0);
+        openEditor(p, c, 0);
     }
 
-    private void openDialogue(Player p, Character c) {
-        Holder h = new Holder();
-        h.shopId = c.getId();
-        h.view = View.DIALOGUE;
-        h.inv = Bukkit.createInventory(h, 27, Component.text("Dialogue — " + plainName(c), NamedTextColor.DARK_GREEN));
-        renderDialogue(h, c);
-        p.openInventory(h.inv);
-    }
+    public void openEditor(Player p, Character c, int page) {
+        int maxPages = pages();
+        int safePage = Math.max(0, Math.min(page, maxPages - 1));
 
-    private void openOutings(Player p, Character c) {
-        Holder h = new Holder();
-        h.shopId = c.getId();
-        h.view = View.OUTINGS;
-        h.inv = Bukkit.createInventory(h, 54, Component.text("Outings — " + plainName(c), NamedTextColor.DARK_GREEN));
-        renderOutings(h, c);
-        p.openInventory(h.inv);
-    }
-
-    /** Open the line-list editor for {@code key} ("tag" or a dialogue trigger). Public so chat-add can reopen it. */
-    public void openLineList(Player p, Character c, String key) {
-        if (!"tag".equals(key)) manager.seedOwnerDialogIfNeeded(c, key);   // first open → show the real lines
-        Holder h = new Holder();
-        h.shopId = c.getId();
-        h.view = View.LIST;
-        h.listKey = key;
-        h.inv = Bukkit.createInventory(h, 54, Component.text(listTitle(key) + " — " + plainName(c),
-                NamedTextColor.DARK_GREEN));
-        renderList(h, c);
-        p.openInventory(h.inv);
-    }
-
-    private int pages() {
-        return Math.max(1, plugin.getConfig().getInt("shop.max-trade-pages", 10));
-    }
-
-    /** Max trades a shop can hold (editor pages × 9 columns). */
-    public int capacity() {
-        return pages() * 9;
-    }
-
-    // --- rendering ----------------------------------------------------------
-
-    private void renderMain(Holder h, Character c) {
-        fill(h.inv, pane(Material.GRAY_STAINED_GLASS_PANE));
-        h.inv.setItem(MAIN_OPEN, button(Material.EMERALD, "<green><b>Open shop</b></green>",
-                "Trade with your own shop", "exactly like a customer sees it."));
-        h.inv.setItem(MAIN_TRADES, button(Material.WRITABLE_BOOK, "<yellow><b>Edit trades</b></yellow>",
-                "Each column is one trade:", "top = item sold, below = its costs.",
-                c.trades().size() + " of " + capacity() + " trades set."));
-        h.inv.setItem(MAIN_DIALOGUE, button(Material.OAK_SIGN, "<gold><b>Dialogue</b></gold>",
-                "Edit what your shopkeeper says:", "greetings, thanks, calls, and more.",
-                "Colors with & codes or &#hex work."));
-        h.inv.setItem(MAIN_BEHAVIOR, button(Material.LEAD, "<aqua><b>Behavior</b></aqua>",
-                "Toggle what your shopkeeper does", "while idle: roam, sit, gossip,", "hawk wares at passers-by."));
-        h.inv.setItem(MAIN_OUTINGS, button(Material.CLOCK, "<light_purple><b>Outings</b></light_purple>",
-                "Let it wander off to hangout spaces", "(off by default). Choose which",
-                "spaces it's allowed to visit."));
-        h.inv.setItem(MAIN_SEATS, button(Material.GOLDEN_SWORD, "<gold><b>Seat mode</b></gold>",
-                "Get the seat wand, then right-click",
-                "slabs/stairs to mark sit spots (" + c.seats().size() + " set).",
-                "Click a marked seat again = PRIORITY seat",
-                "(it sits there for customers). Sneak-click removes."));
-        List<String> info = new ArrayList<>();
-        info.add((c.owner() != null ? "Your shop" : "Admin shop (infinite stock)"));
-        info.add("Trades: " + c.trades().size());
-        if (c.container() != null) {
-            int[] at = c.container();
-            info.add("Stock chest: " + at[0] + ", " + at[1] + ", " + at[2]);
-            info.add("Keep it stocked — sold items leave it,");
-            info.add("payments arrive into it.");
-        }
-        h.inv.setItem(MAIN_INFO, button(Material.PAPER, "<aqua><b>How it works</b></aqua>", info.toArray(new String[0])));
-        h.inv.setItem(MAIN_MOVE, button(Material.ENDER_PEARL, "<light_purple><b>Move shopkeeper here</b></light_purple>",
-                "Stand where it should stand,", "then click this."));
-        if (c.owner() != null) {
-            h.inv.setItem(MAIN_CHEST, button(Material.CHEST, "<yellow><b>Move stock chest</b></yellow>",
-                    "Then right-click the NEW chest", "to link it."));
-        }
-        h.inv.setItem(MAIN_NAMETAG, button(Material.OAK_HANGING_SIGN, "<yellow><b>Nametag</b></yellow>",
-                "Floating text above the shopkeeper", "(none by default). Add/remove lines;",
-                c.hasTag() ? c.tagLines().size() + " line(s) set." : "no lines set."));
-        h.inv.setItem(MAIN_RENAME, button(Material.NAME_TAG, "<yellow><b>Rename</b></yellow>",
-                "Type the new name in chat", "(& / &#hex / MiniMessage colors)."));
-        h.inv.setItem(MAIN_SKIN, button(Material.PLAYER_HEAD, "<yellow><b>Change skin</b></yellow>",
-                "Left-click: type a player name in chat.", "Right-click: use YOUR skin."));
-        h.inv.setItem(MAIN_DELETE, button(Material.BARRIER, "<red><b>Delete shop</b></red>",
-                "Click TWICE to remove this", "shopkeeper. Chest items stay put."));
-    }
-
-    /** Pull this page's trades into the 27 template slots. */
-    private void loadEditor(Holder h, Character c) {
-        java.util.Arrays.fill(h.col, null);
+        ItemStack[] col = new ItemStack[27];
         List<ShopTrade> trades = c.trades();
         for (int i = 0; i < 9; i++) {
-            int ti = h.page * 9 + i;
+            int ti = safePage * 9 + i;
             if (ti >= trades.size()) break;
             ShopTrade t = trades.get(ti);
-            h.col[i] = t.result().clone();
-            h.col[i + 9] = t.a().clone();
-            h.col[i + 18] = t.b() != null ? t.b().clone() : null;
+            col[i] = t.result().clone();
+            col[i + 9] = t.a().clone();
+            col[i + 18] = t.b() != null ? t.b().clone() : null;
         }
+
+        renderEditorMenu(p, c, safePage, col);
     }
 
-    private void renderEditor(Holder h, Character c) {
-        fill(h.inv, null);
+    private void renderEditorMenu(Player p, Character c, int page, ItemStack[] col) {
+        int maxPages = pages();
+        PiMenu menu = PiMenu.create(Component.text("Trades — " + plainName(c)
+                + "  (page " + (page + 1) + "/" + maxPages + ")", NamedTextColor.DARK_GREEN), 6);
+
+        // Allow picking up items from own inventory to click onto template slots
+        menu.allowBottomInventoryPickup(true);
+
+        // 1. Template slots (0-26)
         for (int i = 0; i < 27; i++) {
-            h.inv.setItem(i, h.col[i] != null ? withEditLore(h.col[i], i) : emptyTemplate(i));
+            final int slot = i;
+            ItemStack current = col[slot];
+            ItemStack icon = current != null ? withEditLore(current, slot) : emptyTemplate(slot);
+
+            menu.button(slot, PiButton.create(icon).onClick((player, e) -> {
+                ItemStack cursor = e.getCursor();
+                boolean holding = cursor != null && !cursor.getType().isAir();
+                if (holding) {
+                    col[slot] = PiMenu.cloneClean(cursor);
+                } else {
+                    col[slot] = adjust(col[slot], e);
+                }
+                renderEditorMenu(player, c, page, col);
+            }));
         }
-        for (int i = 27; i < 54; i++) h.inv.setItem(i, pane(Material.GRAY_STAINED_GLASS_PANE));
-        if (h.page > 0) h.inv.setItem(ED_PREV, button(Material.ARROW, "<white>◀ Page " + h.page,
-                "Saves this page first."));
-        if (h.page < pages() - 1) h.inv.setItem(ED_NEXT, button(Material.ARROW, "<white>Page " + (h.page + 2) + " ▶",
-                "Saves this page first."));
-        h.inv.setItem(ED_BACK, button(Material.OAK_DOOR, "<white>Save & back", "To the shop menu."));
-        h.inv.setItem(ED_INFO, button(Material.BOOK, "<aqua><b>How trades work</b></aqua>",
+
+        // 2. Chrome / Navigation (27-53)
+        for (int i = 27; i < 54; i++) menu.button(i, PiButton.create(pane(Material.GRAY_STAINED_GLASS_PANE)));
+
+        if (page > 0) {
+            menu.button(ED_PREV, PiButton.create(Material.ARROW, "<white>◀ Page " + page, "Saves this page first.")
+                    .onClick((player, e) -> {
+                        saveEditor(col, page, c, player);
+                        openEditor(player, c, page - 1);
+                    }));
+        }
+
+        if (page < maxPages - 1) {
+            menu.button(ED_NEXT, PiButton.create(Material.ARROW, "<white>Page " + (page + 2) + " ▶", "Saves this page first.")
+                    .onClick((player, e) -> {
+                        saveEditor(col, page, c, player);
+                        openEditor(player, c, page + 1);
+                    }));
+        }
+
+        menu.button(ED_BACK, PiButton.create(Material.OAK_DOOR, "<white>Save & back", "To the shop menu.")
+                .onClick((player, e) -> {
+                    saveEditor(col, page, c, player);
+                    openMain(player, c);
+                }));
+
+        menu.button(ED_INFO, PiButton.create(Material.BOOK, "<aqua><b>How trades work</b></aqua>",
                 "Each COLUMN is one trade.",
                 "Top slot: the item customers get.",
                 "Two below: what they pay (2nd optional).",
@@ -326,25 +324,72 @@ public final class ShopGuis implements Listener {
                 "Left-click: +1 · Right-click: −1 · Shift: ±16",
                 "Clear a top item to delete its trade.",
                 "Saved when you leave or turn the page."));
+
+        // 3. Bottom inventory shift-click interaction (start new trade in row 0)
+        menu.onBottomClick((player, e) -> {
+            if (!e.getClick().isShiftClick()) return;
+            ItemStack clicked = e.getCurrentItem();
+            if (clicked == null || clicked.getType().isAir()) return;
+            for (int i = 0; i < 9; i++) {
+                if (col[i] == null) {
+                    col[i] = PiMenu.cloneClean(clicked);
+                    renderEditorMenu(player, c, page, col);
+                    return;
+                }
+            }
+            player.sendMessage(Component.text("This page is full — turn the page for more trade slots.", NamedTextColor.GRAY));
+        });
+
+        // 4. Drag support: dragging an item across template slots sets the template
+        menu.onDrag((player, e) -> {
+            int topSize = 54;
+            List<Integer> topSlots = e.getRawSlots().stream().filter(s -> s < topSize).toList();
+            if (topSlots.size() != 1) return;
+            int targetSlot = topSlots.get(0);
+            if (targetSlot < 0 || targetSlot >= 27) return;
+            ItemStack dragged = e.getOldCursor();
+            if (dragged == null || dragged.getType().isAir()) return;
+            col[targetSlot] = PiMenu.cloneClean(dragged);
+            renderEditorMenu(player, c, page, col);
+        });
+
+        // 5. On close auto-persistence
+        menu.onClose(player -> saveEditor(col, page, c, player));
+
+        menu.open(p);
     }
 
-    private void renderBehavior(Holder h, Character c) {
-        fill(h.inv, pane(Material.GRAY_STAINED_GLASS_PANE));
+    private void openBehavior(Player p, Character c) {
+        PiMenu menu = PiMenu.create(Component.text("Behavior — " + plainName(c), NamedTextColor.DARK_GREEN), 3);
+        menu.fill(pane(Material.GRAY_STAINED_GLASS_PANE));
+
         int[] slots = {BEH_ROAM, BEH_SIT, BEH_GOSSIP, BEH_HAWK};
         for (int i = 0; i < BEHAVIORS.length; i++) {
             String[] b = BEHAVIORS[i];
             boolean on = c.ai(b[0], "t".equals(b[1]));
             List<String> lore = new ArrayList<>(List.of(b).subList(3, b.length));
-            lore.add(on ? "Currently ON — click to turn off." : "Currently OFF — click to turn on.");
-            h.inv.setItem(slots[i], button(on ? Material.LIME_DYE : Material.GRAY_DYE,
-                    (on ? "<green><b>" : "<gray><b>") + b[2] + "</b> " + (on ? "<green>✔" : "<dark_gray>✘"),
-                    lore.toArray(new String[0])));
+            lore.add(on ? "&aCurrently ON — click to turn off." : "&7Currently OFF — click to turn on.");
+
+            String title = (on ? "<green><b>" : "<gray><b>") + b[2] + "</b> " + (on ? "<green>✔" : "<dark_gray>✘");
+            Material mat = on ? Material.LIME_DYE : Material.GRAY_DYE;
+
+            menu.button(slots[i], PiButton.create(mat, title, lore.toArray(new String[0]))
+                    .onClick((player, e) -> {
+                        manager.setAi(c, b[0], !on);
+                        openBehavior(player, c);
+                    }));
         }
-        h.inv.setItem(BEH_BACK, button(Material.OAK_DOOR, "<white>Back", "To the shop menu."));
+
+        menu.button(BEH_BACK, PiButton.create(Material.OAK_DOOR, "<white>Back", "To the shop menu.")
+                .onClick((player, e) -> openMain(player, c)));
+
+        menu.open(p);
     }
 
-    private void renderDialogue(Holder h, Character c) {
-        fill(h.inv, pane(Material.GRAY_STAINED_GLASS_PANE));
+    private void openDialogue(Player p, Character c) {
+        PiMenu menu = PiMenu.create(Component.text("Dialogue — " + plainName(c), NamedTextColor.DARK_GREEN), 3);
+        menu.fill(pane(Material.GRAY_STAINED_GLASS_PANE));
+
         for (Object[] cat : DIALOGUE_CATS) {
             String trigger = (String) cat[0];
             int count = manager.ownerDialogLines(c, trigger).size();
@@ -353,27 +398,39 @@ public final class ShopGuis implements Listener {
             lore.add("");
             lore.add(count == 0 ? "No lines yet." : count + " line" + (count == 1 ? "" : "s") + " set.");
             lore.add("<yellow>Click to edit.");
-            h.inv.setItem((Integer) cat[1], button(Material.WRITABLE_BOOK,
-                    "<gold><b>" + cat[2] + "</b></gold>", lore.toArray(new String[0])));
+
+            menu.button((Integer) cat[1], PiButton.create(Material.WRITABLE_BOOK,
+                    "<gold><b>" + cat[2] + "</b></gold>", lore.toArray(new String[0]))
+                    .onClick((player, e) -> openLineList(player, c, trigger)));
         }
-        h.inv.setItem(22, button(Material.OAK_DOOR, "<white>Back", "To the shop menu."));
+
+        menu.button(22, PiButton.create(Material.OAK_DOOR, "<white>Back", "To the shop menu.")
+                .onClick((player, e) -> openMain(player, c)));
+
+        menu.open(p);
     }
 
-    private void renderOutings(Holder h, Character c) {
-        fill(h.inv, pane(Material.GRAY_STAINED_GLASS_PANE));
+    private void openOutings(Player p, Character c) {
+        PiMenu menu = PiMenu.create(Component.text("Outings — " + plainName(c), NamedTextColor.DARK_GREEN), 6);
+        menu.fill(pane(Material.GRAY_STAINED_GLASS_PANE));
+
         boolean on = manager.outingsOn(c);
-        h.inv.setItem(OUT_TOGGLE, button(on ? Material.LIME_DYE : Material.GRAY_DYE,
+        menu.button(OUT_TOGGLE, PiButton.create(on ? Material.LIME_DYE : Material.GRAY_DYE,
                 on ? "<green><b>Outings: ON</b>" : "<gray><b>Outings: OFF</b>",
                 on ? "It may wander off to a hangout" : "It stays at its post.",
                 on ? "space between customers." : "",
-                on ? "Click to turn OFF." : "Click to turn ON."));
+                on ? "Click to turn OFF." : "Click to turn ON.")
+                .onClick((player, e) -> {
+                    manager.setAi(c, "outings", !on);
+                    openOutings(player, c);
+                }));
 
-        h.spaceSlot.clear();
         List<Space> inWorld = new ArrayList<>();
         for (Space sp : manager.spaces().all()) if (sp.world().equals(c.getWorld())) inWorld.add(sp);
         List<String> allow = c.awaySpaces();
+
         if (inWorld.isEmpty()) {
-            h.inv.setItem(22, button(Material.BARRIER, "<red>No hangout spaces here",
+            menu.button(22, PiButton.create(Material.BARRIER, "<red>No hangout spaces here",
                     "An admin creates one with", "/lsk space create <id>."));
         } else {
             boolean anyMode = allow.isEmpty();
@@ -388,37 +445,67 @@ public final class ShopGuis implements Listener {
                 lore.add("");
                 if (anyMode) lore.add("Allowed (no filter = every space).");
                 else lore.add(ticked ? "<green>Allowed — click to disallow." : "<red>Not allowed — click to allow.");
-                h.inv.setItem(slot, button(shownOn ? Material.LIME_STAINED_GLASS_PANE : Material.RED_STAINED_GLASS_PANE,
-                        (shownOn ? "<green><b>" : "<red><b>") + sp.id() + "</b>", lore.toArray(new String[0])));
-                h.spaceSlot.put(slot, sp.id());
+
+                Material paneMat = shownOn ? Material.LIME_STAINED_GLASS_PANE : Material.RED_STAINED_GLASS_PANE;
+                String title = (shownOn ? "<green><b>" : "<red><b>") + sp.id() + "</b>";
+
+                menu.button(slot, PiButton.create(paneMat, title, lore.toArray(new String[0]))
+                        .onClick((player, e) -> {
+                            manager.toggleAwaySpace(c, sp.id());
+                            openOutings(player, c);
+                        }));
                 slot++;
             }
         }
-        h.inv.setItem(OUT_BACK, button(Material.OAK_DOOR, "<white>Back", "To the shop menu."));
+
+        menu.button(OUT_BACK, PiButton.create(Material.OAK_DOOR, "<white>Back", "To the shop menu.")
+                .onClick((player, e) -> openMain(player, c)));
+
+        menu.open(p);
     }
 
-    private void renderList(Holder h, Character c) {
-        fill(h.inv, null);
-        List<String> lines = listLines(c, h.listKey);
+    public void openLineList(Player p, Character c, String key) {
+        if (!"tag".equals(key)) manager.seedOwnerDialogIfNeeded(c, key);
+        PiMenu menu = PiMenu.create(Component.text(listTitle(key) + " — " + plainName(c), NamedTextColor.DARK_GREEN), 6);
+
+        List<String> lines = listLines(c, key);
         for (int i = 0; i < lines.size() && i < 45; i++) {
+            final int lineIdx = i;
+            String raw = lines.get(i);
             ItemStack it = new ItemStack(Material.PAPER);
             ItemMeta m = it.getItemMeta();
-            String raw = lines.get(i);
             m.displayName(loreLine(raw));
             List<Component> lore = new ArrayList<>();
-            // Show the raw form only when it carries colour/format codes — otherwise it just repeats the name.
             if (raw.indexOf('&') >= 0 || raw.indexOf('§') >= 0 || raw.indexOf('<') >= 0) {
                 lore.add(Component.text(raw, NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
             }
             lore.add(loreLine("<red>Click to remove."));
             m.lore(lore);
             it.setItemMeta(m);
-            h.inv.setItem(i, it);
+
+            menu.button(i, PiButton.create(it).onClick((player, e) -> {
+                List<String> currentLines = listLines(c, key);
+                if (lineIdx < currentLines.size()) {
+                    currentLines.remove(lineIdx);
+                    saveListLines(c, key, currentLines);
+                    openLineList(player, c, key);
+                }
+            }));
         }
-        for (int i = 45; i < 54; i++) h.inv.setItem(i, pane(Material.GRAY_STAINED_GLASS_PANE));
-        h.inv.setItem(LIST_ADD, button(Material.WRITABLE_BOOK, "<green><b>Add a line</b>",
-                "Type it in chat.", "& / &#hex / MiniMessage colors,", "and <player> <npc> <time> work."));
-        h.inv.setItem(LIST_BACK, button(Material.OAK_DOOR, "<white>Back", listBackHint(h.listKey)));
+
+        for (int i = 45; i < 54; i++) menu.button(i, PiButton.create(pane(Material.GRAY_STAINED_GLASS_PANE)));
+
+        menu.button(LIST_ADD, PiButton.create(Material.WRITABLE_BOOK, "<green><b>Add a line</b>",
+                "Type it in chat.", "& / &#hex / MiniMessage colors,", "and <player> <npc> <time> work.")
+                .onClick((player, e) -> settings.beginLine(player, c, key)));
+
+        menu.button(LIST_BACK, PiButton.create(Material.OAK_DOOR, "<white>Back", listBackHint(key))
+                .onClick((player, e) -> {
+                    if ("tag".equals(key)) openMain(player, c);
+                    else openDialogue(player, c);
+                }));
+
+        menu.open(p);
     }
 
     private List<String> listLines(Character c, String key) {
@@ -440,10 +527,7 @@ public final class ShopGuis implements Listener {
         return "tag".equals(key) ? "To the shop menu." : "To the dialogue menu.";
     }
 
-    /** Append a chat-entered line to the list {@code key} for {@code c}, then reopen the editor. */
     public void addLine(Player p, Character c, String key, String text) {
-        // Security: strip command/URL clicks + insertions from owner-typed text; cap length and count so a
-        // shop can't be used to inject actions or spam giant holograms.
         String clean = dev.servereer.livingshopkeeper.dialog.DialogText.sanitizeUserInput(text).trim();
         if (clean.length() > 200) clean = clean.substring(0, 200);
         if (clean.isEmpty()) { openLineList(p, c, key); return; }
@@ -459,23 +543,14 @@ public final class ShopGuis implements Listener {
         openLineList(p, c, key);
     }
 
-    /** The legacy customer grid (kept behind {@code shop.customer-gui: grid}). */
     private void openGrid(Player p, Character c) {
-        Holder h = new Holder();
-        h.shopId = c.getId();
-        h.view = View.CUSTOMER;
-        h.inv = Bukkit.createInventory(h, 54, Component.text(plainName(c), NamedTextColor.DARK_GREEN));
-        renderGrid(h, c);
-        p.openInventory(h.inv);
-    }
-
-    private void renderGrid(Holder h, Character c) {
-        fill(h.inv, null);
+        PiMenu menu = PiMenu.create(Component.text(plainName(c), NamedTextColor.DARK_GREEN), 6);
         List<ShopTrade> trades = c.trades();
+
         for (int i = 0; i < trades.size() && i < 45; i++) {
             ShopTrade t = trades.get(i);
             int uses = engine.stockUses(c, t);
-            ItemStack icon = t.result();
+            ItemStack icon = t.result().clone();
             ItemMeta meta = icon.getItemMeta();
             List<Component> lore = meta.hasLore() && meta.lore() != null ? new ArrayList<>(meta.lore()) : new ArrayList<>();
             lore.add(loreLine("<dark_gray>—"));
@@ -489,13 +564,40 @@ public final class ShopGuis implements Listener {
             }
             meta.lore(lore);
             icon.setItemMeta(meta);
-            h.inv.setItem(i, icon);
+
+            menu.button(i, PiButton.create(icon).onClick((player, e) -> {
+                int count = e.isShiftClick() ? 8 : 1;
+                int bought = 0;
+                String error = null;
+                for (int buy = 0; buy < count; buy++) {
+                    error = engine.purchase(player, c, t);
+                    if (error != null) break;
+                    bought++;
+                }
+                if (bought > 0) {
+                    player.sendMessage(Component.text("Bought " + (bought * t.result().getAmount()) + "× for "
+                            + ShopEngine.describe(withAmount(t.a(), t.a().getAmount() * bought))
+                            + (t.b() != null ? " + " + ShopEngine.describe(withAmount(t.b(), t.b().getAmount() * bought)) : "")
+                            + ".", NamedTextColor.GREEN));
+                    player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8f, 1.2f);
+                    manager.onShopPurchase(player, c);
+                    manager.notifyOwnerSale(c, player, t.result(), bought * t.result().getAmount());
+                } else if (error != null) {
+                    player.sendMessage(Component.text(error, NamedTextColor.RED));
+                    player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_VILLAGER_NO, 0.8f, 1f);
+                }
+                openGrid(player, c);
+            }));
         }
-        for (int i = 45; i < 54; i++) h.inv.setItem(i, pane(Material.GRAY_STAINED_GLASS_PANE));
-        h.inv.setItem(49, button(Material.PAPER, "<aqua><b>How to buy</b></aqua>",
+
+        for (int i = 45; i < 54; i++) menu.button(i, PiButton.create(pane(Material.GRAY_STAINED_GLASS_PANE)));
+
+        menu.button(49, PiButton.create(Material.PAPER, "<aqua><b>How to buy</b></aqua>",
                 "Have the price items in your inventory,",
                 "then click what you want. The payment",
                 "is taken and the item handed to you."));
+
+        menu.open(p);
     }
 
     private ItemStack withEditLore(ItemStack current, int slot) {
@@ -522,221 +624,36 @@ public final class ShopGuis implements Listener {
                 : slot < 18 ? "<yellow><b>Cost 1</b></yellow>" : "<white><b>Cost 2</b></white> <gray>(optional)</gray>";
     }
 
-    // --- editor persistence -------------------------------------------------
-
-    /** Write this page's columns back into the trade list (idempotent — safe to run twice). */
-    private void saveEditor(Holder h, Character c, Player p) {
+    private void saveEditor(ItemStack[] col, int page, Character c, Player p) {
+        if (c == null) return;
         List<ShopTrade> built = new ArrayList<>(9);
         boolean costless = false;
         for (int i = 0; i < 9; i++) {
-            ItemStack result = h.col[i], a = h.col[i + 9], b = h.col[i + 18];
-            if (result == null) continue;               // no sold item → the column is deleted/empty
-            ItemStack costA = a != null ? a : b;        // cost 2 alone just becomes cost 1
+            ItemStack result = col[i], a = col[i + 9], b = col[i + 18];
+            if (result == null) continue;
+            ItemStack costA = a != null ? a : b;
             ItemStack costB = a != null ? b : null;
             if (costA == null) { costless = true; continue; }
-            built.add(new ShopTrade(result, costA, costB));
+            built.add(new ShopTrade(PiMenu.cloneClean(result), PiMenu.cloneClean(costA), costB != null ? PiMenu.cloneClean(costB) : null));
         }
         List<ShopTrade> out = new ArrayList<>(c.trades());
-        int from = Math.min(h.page * 9, out.size());
+        int from = Math.min(page * 9, out.size());
         int to = Math.min(from + 9, out.size());
         out.subList(from, to).clear();
         out.addAll(from, built);
         c.setTrades(out);
         manager.persist(c);
-        if (costless && !h.warnedCostless && p != null) {
-            h.warnedCostless = true;
+        if (costless && p != null) {
             p.sendMessage(Component.text("A trade with no cost item was not saved — give it a Cost 1.",
                     NamedTextColor.YELLOW));
         }
     }
 
-    // --- click handling -----------------------------------------------------
-
-    @EventHandler
-    public void onClick(InventoryClickEvent e) {
-        if (!(e.getView().getTopInventory().getHolder() instanceof Holder h)) return;
-        boolean top = e.getClickedInventory() == e.getView().getTopInventory();
-        // The EDITOR lets the player play normally in their OWN inventory so they can pick an item up
-        // and click it onto a template slot. Everything touching the top inventory — and every
-        // cross-inventory action (shift-move, double-click collect) — is cancelled and re-interpreted,
-        // so real items can never enter the GUI. Other views stay buttons-only everywhere.
-        boolean allowVanilla = h.view == View.EDITOR && !top
-                && !e.getClick().isShiftClick()
-                && e.getClick() != ClickType.DOUBLE_CLICK
-                && e.getAction() != InventoryAction.COLLECT_TO_CURSOR
-                && e.getAction() != InventoryAction.MOVE_TO_OTHER_INVENTORY;
-        if (!allowVanilla) e.setCancelled(true);
-        if (!(e.getWhoClicked() instanceof Player p)) return;
-        Character c = h.shop();
-        if (c == null) { p.closeInventory(); return; }
-
-        int slot = e.getSlot();
-        switch (h.view) {
-            case MAIN -> {
-                if (!top) return;
-                if (slot == MAIN_OPEN) {
-                    openCustomer(p, c);
-                } else if (slot == MAIN_TRADES) {
-                    openEditor(p, h, 0);
-                } else if (slot == MAIN_DIALOGUE) {
-                    openDialogue(p, c);
-                } else if (slot == MAIN_BEHAVIOR) {
-                    openBehavior(p, h);
-                } else if (slot == MAIN_OUTINGS) {
-                    openOutings(p, c);
-                } else if (slot == MAIN_NAMETAG) {
-                    openLineList(p, c, "tag");
-                } else if (slot == MAIN_SEATS) {
-                    p.closeInventory();
-                    seatWand.bind(p, c.getId());
-                    Material wand = seatWand.wandItem(c);
-                    if (!p.getInventory().contains(wand)) p.getInventory().addItem(new ItemStack(wand));
-                    p.sendMessage(Component.text("Seat mode: right-click slabs/stairs with the "
-                            + wand.name().toLowerCase().replace('_', ' ') + " to mark sit spots. Click a marked"
-                            + " seat again = priority seat. Sneak-click removes.", NamedTextColor.GOLD));
-                } else if (slot == MAIN_MOVE) {
-                    moveShopHere(p, c);
-                } else if (slot == MAIN_CHEST && c.owner() != null) {
-                    settings.begin(p, c, ShopSettings.Mode.CHEST);
-                } else if (slot == MAIN_RENAME) {
-                    settings.begin(p, c, ShopSettings.Mode.RENAME);
-                } else if (slot == MAIN_SKIN) {
-                    if (e.isRightClick()) {
-                        manager.applySkin(c, p.getName());
-                        p.sendMessage(Component.text("Shopkeeper now wears your skin.", NamedTextColor.GREEN));
-                    } else {
-                        settings.begin(p, c, ShopSettings.Mode.SKIN);
-                    }
-                } else if (slot == MAIN_DELETE) {
-                    long now = System.currentTimeMillis();
-                    if (now - h.deleteArmedAt <= 5000) {
-                        p.closeInventory();
-                        manager.removeShopViaGui(p, c.getId());
-                    } else {
-                        h.deleteArmedAt = now;
-                        h.inv.setItem(MAIN_DELETE, button(Material.BARRIER, "<dark_red><b>REALLY delete?</b></dark_red>",
-                                "Click again within 5 seconds", "to remove this shopkeeper."));
-                    }
-                }
-            }
-            case EDITOR -> handleEditorClick(e, h, c, p, top, slot);
-            case BEHAVIOR -> {
-                if (!top) return;
-                int[] slots = {BEH_ROAM, BEH_SIT, BEH_GOSSIP, BEH_HAWK};
-                for (int i = 0; i < slots.length; i++) {
-                    if (slot == slots[i]) {
-                        String[] b = BEHAVIORS[i];
-                        manager.setAi(c, b[0], !c.ai(b[0], "t".equals(b[1])));
-                        renderBehavior(h, c);
-                        return;
-                    }
-                }
-                if (slot == BEH_BACK) openMain(p, c);
-            }
-            case DIALOGUE -> {
-                if (!top) return;
-                for (Object[] cat : DIALOGUE_CATS) {
-                    if (slot == (Integer) cat[1]) { openLineList(p, c, (String) cat[0]); return; }
-                }
-                if (slot == 22) openMain(p, c);
-            }
-            case OUTINGS -> {
-                if (!top) return;
-                if (slot == OUT_TOGGLE) {
-                    manager.setAi(c, "outings", !manager.outingsOn(c));
-                    renderOutings(h, c);
-                } else if (slot == OUT_BACK) {
-                    openMain(p, c);
-                } else {
-                    String spaceId = h.spaceSlot.get(slot);
-                    if (spaceId != null) {
-                        manager.toggleAwaySpace(c, spaceId);
-                        renderOutings(h, c);
-                    }
-                }
-            }
-            case LIST -> {
-                if (!top) return;
-                List<String> lines = listLines(c, h.listKey);
-                if (slot >= 0 && slot < 45 && slot < lines.size()) {
-                    lines.remove(slot);
-                    saveListLines(c, h.listKey, lines);
-                    renderList(h, c);
-                } else if (slot == LIST_ADD) {
-                    settings.beginLine(p, c, h.listKey);   // chat capture → append → reopen this list
-                } else if (slot == LIST_BACK) {
-                    if ("tag".equals(h.listKey)) openMain(p, c);
-                    else openDialogue(p, c);
-                }
-            }
-            case CUSTOMER -> {
-                if (!top || slot < 0 || slot >= 45 || slot >= c.trades().size()) return;
-                ShopTrade t = c.trades().get(slot);
-                int count = e.isShiftClick() ? 8 : 1;
-                int bought = 0;
-                String error = null;
-                for (int i = 0; i < count; i++) {
-                    error = engine.purchase(p, c, t);
-                    if (error != null) break;
-                    bought++;
-                }
-                if (bought > 0) {
-                    p.sendMessage(Component.text("Bought " + (bought * t.result().getAmount()) + "× for "
-                            + ShopEngine.describe(withAmount(t.a(), t.a().getAmount() * bought))
-                            + (t.b() != null ? " + " + ShopEngine.describe(withAmount(t.b(), t.b().getAmount() * bought)) : "")
-                            + ".", NamedTextColor.GREEN));
-                    p.playSound(p.getLocation(), org.bukkit.Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8f, 1.2f);
-                    manager.onShopPurchase(p, c);   // the keeper says thanks (and waves you out later)
-                    manager.notifyOwnerSale(c, p, t.result(), bought * t.result().getAmount());
-                } else if (error != null) {
-                    p.sendMessage(Component.text(error, NamedTextColor.RED));
-                    p.playSound(p.getLocation(), org.bukkit.Sound.ENTITY_VILLAGER_NO, 0.8f, 1f);
-                }
-                renderGrid(h, c);   // stock/lore may have changed
-            }
-        }
-    }
-
-    private void handleEditorClick(InventoryClickEvent e, Holder h, Character c, Player p, boolean top, int slot) {
-        if (!top) {
-            // shift-click on the player's OWN item (cancelled above) → start a new trade with a copy of
-            // it as the sold item; plain clicks are vanilla, so they can also pick it up and click a slot.
-            if (!e.getClick().isShiftClick()) return;
-            ItemStack clicked = e.getCurrentItem();
-            if (clicked == null || clicked.getType().isAir()) return;
-            for (int i = 0; i < 9; i++) {
-                if (h.col[i] == null) {
-                    h.col[i] = clicked.clone();
-                    renderEditor(h, c);
-                    return;
-                }
-            }
-            p.sendMessage(Component.text("This page is full — turn the page for more trade slots.", NamedTextColor.GRAY));
-            return;
-        }
-        if (slot >= 0 && slot < 27) {
-            ItemStack cursor = e.getCursor();
-            boolean holding = cursor != null && !cursor.getType().isAir();
-            h.col[slot] = holding ? cursor.clone() : adjust(h.col[slot], e);
-            renderEditor(h, c);
-        } else if (slot == ED_BACK) {
-            saveEditor(h, c, p);
-            openMain(p, c);
-        } else if (slot == ED_PREV && h.page > 0) {
-            saveEditor(h, c, p);
-            openEditor(p, h, h.page - 1);
-        } else if (slot == ED_NEXT && h.page < pages() - 1) {
-            saveEditor(h, c, p);
-            openEditor(p, h, h.page + 1);
-        }
-    }
-
-    /** Amount button logic on a template slot: left +, right −, shift ×16; −1 at one clears. */
     private static ItemStack adjust(ItemStack current, InventoryClickEvent e) {
         if (current == null) return null;
         int step = e.isShiftClick() ? 16 : 1;
         int amount = current.getAmount() + (e.isRightClick() ? -step : step);
-        if (amount <= 0) return null;   // reduced away → clear the slot
+        if (amount <= 0) return null;
         current.setAmount(Math.min(amount, current.getMaxStackSize()));
         return current;
     }
@@ -747,13 +664,16 @@ public final class ShopGuis implements Listener {
         return copy;
     }
 
+    private int pages() {
+        return Math.max(1, plugin.getConfig().getInt("shop.max-trade-pages", 10));
+    }
+
+    public int capacity() {
+        return pages() * 9;
+    }
+
     // --- vanilla merchant purchases ----------------------------------------
 
-    /**
-     * A vanilla-merchant trade is about to complete. Vanilla already handles the player's side
-     * (ingredients out, result in); here the player shop's chest mirrors it — the sold item leaves
-     * the chest, the payment lands in it — or the purchase is cancelled when the chest can't.
-     */
     @EventHandler
     public void onPurchase(PlayerPurchaseEvent e) {
         MerchantSession s = merchants.get(e.getPlayer().getUniqueId());
@@ -789,14 +709,8 @@ public final class ShopGuis implements Listener {
         if (e.getView().getTopInventory() instanceof MerchantInventory) {
             merchants.remove(e.getPlayer().getUniqueId());
         }
-        if (e.getView().getTopInventory().getHolder() instanceof Holder h && h.view == View.EDITOR
-                && e.getPlayer() instanceof Player p) {
-            Character c = h.shop();
-            if (c != null) saveEditor(h, c, p);
-        }
     }
 
-    /** Move the shopkeeper's post to the clicker's position (validated against region + chest range). */
     private void moveShopHere(Player p, Character c) {
         Location to = p.getLocation();
         if (c.owner() != null && !p.hasPermission("livingnpc.admin")
@@ -821,26 +735,6 @@ public final class ShopGuis implements Listener {
         p.sendMessage(Component.text("Shopkeeper post moved here.", NamedTextColor.GREEN));
     }
 
-    @EventHandler
-    public void onDrag(InventoryDragEvent e) {
-        if (!(e.getView().getTopInventory().getHolder() instanceof Holder h)) return;
-        int topSize = e.getView().getTopInventory().getSize();
-        List<Integer> topSlots = e.getRawSlots().stream().filter(s -> s < topSize).toList();
-        if (topSlots.isEmpty()) return;   // a drag entirely in their own inventory is fine
-        e.setCancelled(true);
-        // dragging an item onto exactly one template slot = set that template (a copy, item stays theirs)
-        if (h.view != View.EDITOR || topSlots.size() != 1) return;
-        ItemStack dragged = e.getOldCursor();
-        if (dragged == null || dragged.getType().isAir()) return;
-        int slot = topSlots.get(0);
-        if (slot < 0 || slot >= 27) return;
-        h.col[slot] = dragged.clone();
-        Character c = h.shop();
-        if (c != null) renderEditor(h, c);
-    }
-
-    // --- item helpers -------------------------------------------------------
-
     private static ItemStack button(Material m, String title, String... loreLines) {
         ItemStack it = new ItemStack(m);
         ItemMeta meta = it.getItemMeta();
@@ -860,11 +754,6 @@ public final class ShopGuis implements Listener {
         return it;
     }
 
-    private static void fill(Inventory inv, ItemStack with) {
-        for (int i = 0; i < inv.getSize(); i++) inv.setItem(i, with);
-    }
-
-    /** MiniMessage → Component with the default-italic of lore turned off. */
     private static Component loreLine(String mini) {
         return dev.servereer.livingshopkeeper.dialog.DialogText.mini(mini)
                 .decoration(TextDecoration.ITALIC, false);

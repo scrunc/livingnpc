@@ -3,6 +3,8 @@ package dev.servereer.livingshopkeeper.npc;
 import dev.servereer.livingshopkeeper.audio.SpeechController;
 import dev.servereer.livingshopkeeper.dialog.DialogEngine;
 import dev.servereer.livingshopkeeper.dialog.DialogNode;
+import dev.servereer.livingshopkeeper.dialog.GossipCtx;
+import dev.servereer.livingshopkeeper.dialog.GossipPlaceholders;
 import dev.servereer.livingshopkeeper.gui.DialogMenuGui;
 import dev.servereer.livingshopkeeper.move.MovementController;
 import io.github.retrooper.packetevents.util.SpigotReflectionUtil;
@@ -47,6 +49,9 @@ public final class CharacterManager {
     private static final float ROTATE_THRESHOLD_DEG = 3f;
     private static final long SCAN_PERIOD_TICKS = 5L;
     private static final long MOVE_PERIOD_TICKS = 1L;   // 20 Hz: smoother than the old 10 Hz block-step cadence
+    /** Fallback {@code gossip.smalltalk-format} when the config has none — {@code <line>} is the spoken line. */
+    private static final String DEFAULT_SMALLTALK_FORMAT =
+            "<gold><npc></gold> <dark_gray>»</dark_gray> <gray><line></gray>";
 
     private final JavaPlugin plugin;
     private final SkinCache skins;
@@ -94,6 +99,13 @@ public final class CharacterManager {
     private long nextOutingCheckMs;
     private SpaceManager spaces;
     private dev.servereer.livingshopkeeper.ai.AiChatService aiChat;
+
+    // --- gossip placeholders (the registry lives in GossipPlaceholders; see GUIDE.md "gossip placeholders") ---
+    private boolean gossipPlaceholders = true;      // gossip.placeholders.enabled — off = pre-placeholder behaviour
+    private int crowdBusy = GossipPlaceholders.DEFAULT_CROWD_BUSY;
+    private int crowdPacked = GossipPlaceholders.DEFAULT_CROWD_PACKED;
+    private List<String> loreMineNews = GossipPlaceholders.DEFAULT_MINE_NEWS;
+    private List<String> loreTravelerTale = GossipPlaceholders.DEFAULT_TRAVELER_TALES;
 
     /** A friendly duel: the NPC mirrors the player's weapon class and only ever responds, never starts. */
     private static final class SparState {
@@ -256,6 +268,9 @@ public final class CharacterManager {
                     continue;
                 }
                 register(c);
+                if (c.skinName() != null && c.textureValue() == null) {
+                    resolveSkin(c, c.skinName());
+                }
             }
         }
         plugin.getLogger().info("Loaded " + byId.size() + " character(s).");
@@ -323,6 +338,19 @@ public final class CharacterManager {
         this.outingSchedules = parseOutingSchedules();
         if (spaces != null) spaces.load();
         if (aiChat != null) aiChat.reload();
+        // Gossip placeholders: every key is optional — a config.yml from an older version simply gets the
+        // built-in defaults below, and the fail-open registry keeps old `smalltalk` lines working verbatim.
+        this.gossipPlaceholders = plugin.getConfig().getBoolean("gossip.placeholders.enabled", true);
+        this.crowdBusy = plugin.getConfig().getInt("gossip.placeholders.crowd-busy",
+                GossipPlaceholders.DEFAULT_CROWD_BUSY);
+        this.crowdPacked = plugin.getConfig().getInt("gossip.placeholders.crowd-packed",
+                GossipPlaceholders.DEFAULT_CROWD_PACKED);
+        List<String> mineNews = plugin.getConfig().getStringList("gossip.lore.mine_news");
+        List<String> travelerTales = plugin.getConfig().getStringList("gossip.lore.traveler_tale");
+        this.loreMineNews = mineNews.isEmpty() ? GossipPlaceholders.DEFAULT_MINE_NEWS : List.copyOf(mineNews);
+        this.loreTravelerTale = travelerTales.isEmpty()
+                ? GossipPlaceholders.DEFAULT_TRAVELER_TALES : List.copyOf(travelerTales);
+        GossipPlaceholders.clearWarnings();   // a typo fixed in config.yml stops nagging after /lsk reload
     }
 
     private List<OutingSchedule> parseOutingSchedules() {
@@ -606,6 +634,7 @@ public final class CharacterManager {
             c.setSkin(skinName, skin.value(), skin.signature());
             persist(c);
             respawn(c);
+            plugin.getLogger().info("Applied skin '" + skinName + "' to character '" + c.getId() + "'.");
         }));
     }
 
@@ -2011,6 +2040,10 @@ public final class CharacterManager {
         return sb.toString();
     }
     public void setPersona(Character c, String persona) { c.setPersona(persona); persist(c); }
+    /** Gossip flavour ({@code <speaker_job>}/{@code <speaker_trait>}/{@code <mood_speaker>}); null clears. */
+    public void setJob(Character c, String job) { c.setJob(job); persist(c); }
+    public void setTrait(Character c, String trait) { c.setTrait(trait); persist(c); }
+    public void setMood(Character c, String mood) { c.setMood(mood); persist(c); }
     public void setSparRegion(Character c, String region) { c.setSparRegion(region); persist(c); }
     public void setSparStyle(Character c, String style) { c.setSparStyle(style); persist(c); }
     public void setSparArmor(Character c, String tier) { c.setSparArmor(tier); persist(c); }
@@ -2540,7 +2573,13 @@ public final class CharacterManager {
                 }
             }
         }
-        if (!spoke && audience != null) fallbackLine(speaker, listener, w);
+        if (!spoke && audience != null) {
+            // The placeholder snapshot is only needed when we actually have to speak, and it is read once
+            // per beat (one surroundings scan), never per candidate line.
+            GossipCtx ctx = gossipPlaceholders
+                    ? gossipCtx(speaker, listener, w, speaker.getX(), speaker.getY(), speaker.getZ()) : null;
+            fallbackLine(speaker, listener, w, ctx);
+        }
         scheduleReaction(listener, now);
     }
 
@@ -2549,7 +2588,7 @@ public final class CharacterManager {
      * else a static small-talk line. Whatever ends up said is recorded into the conversation transcript
      * so later AI turns stay coherent.
      */
-    private void fallbackLine(Character speaker, Character listener, World w) {
+    private void fallbackLine(Character speaker, Character listener, World w, GossipCtx ctx) {
         String key = convKey(speaker, listener);
         if (aiChat != null && aiChat.enabled()) {
             boolean requested = aiChat.tryGenerate(key,
@@ -2558,17 +2597,17 @@ public final class CharacterManager {
                     line -> {
                         if (line == null) {   // every provider failed — static line so the beat still lands
                             World lw = Bukkit.getWorld(speaker.getWorld());
-                            if (lw != null) smalltalk(speaker, listener, lw, key);
+                            if (lw != null) smalltalk(speaker, listener, lw, key, ctx);
                             return;
                         }
                         World lw = Bukkit.getWorld(speaker.getWorld());
                         if (lw != null && byId.get(speaker.getId().toLowerCase(Locale.ROOT)) == speaker) {
-                            broadcastLine(speaker, lw, line);
+                            broadcastLine(lw, speaker, ctx, line);
                         }
                     });
             if (requested) return;   // rate caps in effect → fall through to static
         }
-        smalltalk(speaker, listener, w, key);
+        smalltalk(speaker, listener, w, key, ctx);
     }
 
     /** One stable key per conversation: the pair, the space hangout, or the walking group. */
@@ -2618,27 +2657,106 @@ public final class CharacterManager {
                 Sound.ENTITY_VILLAGER_AMBIENT, 0.55f, pitch);
     }
 
-    /** A static line from the config small-talk pool so the chat is never mute. */
-    private void smalltalk(Character speaker, Character listener, World w, String convKey) {
+    /**
+     * A static line from the config small-talk pool so the chat is never mute. With a {@link GossipCtx} the
+     * line goes through the placeholder registry here, so {@code <speaker>}/{@code <speaker_job>}/{@code <crowd>}
+     * — and the legacy {@code <partner>} — all resolve and every substituted value is scrubbed; without a ctx
+     * (placeholders switched off) the pre-1.0 behaviour of replacing {@code <partner>} alone is kept.
+     */
+    private void smalltalk(Character speaker, Character listener, World w, String convKey, GossipCtx ctx) {
         List<String> pool = plugin.getConfig().getStringList("gossip.smalltalk");
         if (pool.isEmpty()) return;
-        String line = pool.get(java.util.concurrent.ThreadLocalRandom.current().nextInt(pool.size()))
-                .replace("<partner>", listener.display());
+        String pick = pool.get(java.util.concurrent.ThreadLocalRandom.current().nextInt(pool.size()));
+        String line = ctx == null ? pick.replace("<partner>", listener.display())
+                : GossipPlaceholders.fill(pick, ctx);
         if (aiChat != null) aiChat.record(convKey, plainName(speaker), line);
-        broadcastLine(speaker, w, line);
+        broadcastLine(w, speaker, ctx, line);
     }
 
-    /** Show one said line to every player within hearing of the speaker (smalltalk-format applies). */
-    private void broadcastLine(Character speaker, World w, String line) {
-        String fmt = plugin.getConfig().getString("gossip.smalltalk-format",
-                "<gold><npc></gold> <dark_gray>»</dark_gray> <gray><line></gray>");
-        String msg = fmt.replace("<npc>", speaker.display()).replace("<line>", line);
+    /**
+     * Show one said line to every player within hearing of the speaker. The format may itself use the gossip
+     * placeholders ({@code <speaker>}, {@code <space>}, {@code <crowd>}, legacy {@code <npc>}) and always gets
+     * the line through its {@code <line>} tag — inserted verbatim, so an author's own markup survives.
+     */
+    private void broadcastLine(World w, Character speaker, GossipCtx ctx, String line) {
+        String fmt = plugin.getConfig().getString("gossip.smalltalk-format", DEFAULT_SMALLTALK_FORMAT);
+        Component msg = ctx == null
+                ? dev.servereer.livingshopkeeper.dialog.DialogText.mini(
+                        fmt.replace("<npc>", speaker.display()).replace("<line>", line))
+                : dev.servereer.livingshopkeeper.dialog.DialogText.renderGossip(fmt, ctx.saying(line));
         Location at = new Location(w, speaker.getX(), speaker.getY(), speaker.getZ());
         for (Player p : w.getPlayers()) {
             if (p.getLocation().distanceSquared(at) <= hearingSq) {
-                p.sendMessage(dev.servereer.livingshopkeeper.dialog.DialogText.mini(msg));
+                p.sendMessage(msg);
             }
         }
+    }
+
+    /** Legacy overload for the non-gossip callers (spar GG / duel challenge) — no placeholder context. */
+    private void broadcastLine(Character speaker, World w, String line) {
+        broadcastLine(w, speaker, null, line);
+    }
+
+    // --- gossip placeholders: the per-beat snapshot (the registry itself lives in GossipPlaceholders) ------
+
+    /**
+     * The snapshot {@link GossipPlaceholders} resolves against: the pair's flavour fields plus the world as it
+     * is at {@code (x,y,z)} right now. Read once per beat so no resolver ever touches the world or the config.
+     */
+    private GossipCtx gossipCtx(Character speaker, Character listener, World w, double x, double y, double z) {
+        int playersNear = w.getNearbyPlayers(new Location(w, x, y, z), hearingDistance).size();
+        return new GossipCtx(
+                GossipCtx.Person.of(speaker.getId(), plainName(speaker),
+                        speaker.job(), speaker.trait(), speaker.mood()),
+                GossipCtx.Person.of(listener.getId(), plainName(listener),
+                        listener.job(), listener.trait(), listener.mood()),
+                GossipCtx.Scene.of(stallOf(speaker), spaceOf(speaker), w.getFullTime(), w.isThundering(),
+                        w.hasStorm(), playersNear,
+                        GossipPlaceholders.crowdOf(playersNear, crowdBusy, crowdPacked)),
+                GossipCtx.Talk.stub(),
+                GossipCtx.News.of(duelWinnerNear(w, x, y, z), loreMineNews, loreTravelerTale));
+    }
+
+    /**
+     * The same snapshot resolved at an arbitrary spot — used by {@code /lsk gossip placeholders}. The pair is
+     * whoever the admin named; world, clock, weather and crowd come from {@code at}, so the printed table
+     * matches what players standing there would read.
+     */
+    public GossipCtx gossipContextAt(Character speaker, Character listener, Location at) {
+        World w = at == null ? null : at.getWorld();
+        if (w == null) return null;
+        return gossipCtx(speaker, listener, w, at.getX(), at.getY(), at.getZ());
+    }
+
+    /** Where the beat happens: the outing space while away, {@code "road"} while walking there, else the market. */
+    private String spaceOf(Character c) {
+        AwayState as = away.get(c.uuid());
+        if (as == null) return "market";
+        return as.phase == AwayState.OUT && as.spaceId != null ? as.spaceId : "road";
+    }
+
+    /** The speaker's post as a place name: the WorldGuard plot at its home when known, else a generic label. */
+    private String stallOf(Character c) {
+        Set<String> regions = shopRegions.get(c.uuid());
+        return regions == null || regions.isEmpty() ? "the stall" : regions.iterator().next();
+    }
+
+    /**
+     * A player currently duelling an NPC within earshot — what {@code <duel_winner>} shows, else "nobody".
+     * Phase 1 reports the duel in progress (there is no recorded winner yet); Phase 1.5 can remember results
+     * by filling {@link GossipCtx.News} from the spar lifecycle instead.
+     */
+    private String duelWinnerNear(World w, double x, double y, double z) {
+        if (spar.isEmpty()) return "nobody";
+        Location at = new Location(w, x, y, z);
+        for (Map.Entry<UUID, SparState> en : spar.entrySet()) {
+            Character npc = byUuid(en.getKey());
+            if (npc == null || !w.getName().equals(npc.getWorld())) continue;
+            if (new Location(w, npc.getX(), npc.getY(), npc.getZ()).distanceSquared(at) > hearingSq) continue;
+            Player fighter = Bukkit.getPlayer(en.getValue().player);
+            if (fighter != null) return fighter.getName();
+        }
+        return "nobody";
     }
 
     /** The listener's delayed reaction: an agreeing nod, a chuckle (bob + bright note), or a wave back. */

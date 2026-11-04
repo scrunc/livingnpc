@@ -7,7 +7,7 @@
 subtitle-mode: chat
 
 # How near (blocks) a player must be to hear/see a shopkeeper speak and be tracked. (P1/P2)
-hearing-distance: 16
+hearing-distance: 24
 
 # Per-player memory + relationship storage backend.  sqlite | json   (P5)
 storage: sqlite
@@ -62,7 +62,10 @@ barker:
 # (/lsk action <id> add player:/warps). Floating tag: /lsk tag <id> add <MiniMessage>.
 lobby:
   # A player within this many blocks of the POST makes the NPC hurry back and attend.
-  trigger-radius: 2.0
+  trigger-radius: 12.0
+  # Minimum gap (seconds) before ANY lobby/shop NPC can greet the same player again (anti-spam).
+  # Prevents multiple clustered NPCs from talking at once. 0 to disable.
+  player-greet-cooldown-seconds: 15.0
   # Keep standing at the post this long (seconds) after the last visitor leaves.
   stay-seconds: 15
   # Idle roaming stays within this radius (blocks) of the post.
@@ -101,7 +104,8 @@ shop:
   # Without a region at the post, "a customer is in the shop" falls back to this radius (blocks).
   attend-radius: 8
   # Wand the shop owner uses to mark slab/stair sit spots (click a marked seat again = priority seat).
-  seat-wand: GOLDEN_SWORD
+  # Use "AIR" for virtual mode (empty hand - no item given, prevents item dupes/spam).
+  seat-wand: AIR
   # Idle social life: chance per wander-decision to visit a nearby fellow shopkeeper for a chat
   # (`gossip` dialog lines), until a customer shows up and they rush back.
   gossip-chance: 0.35
@@ -192,8 +196,28 @@ gossip:
   line-interval-seconds: 7
   # Soft villager mumble on each line, pitched per NPC.
   murmur: true
+  # Placeholder substitution in `smalltalk-format` and in every `smalltalk` line — <speaker>, <listener> (aka
+  # the old <partner>), <speaker_job>, <listener_trait>, <space>, <crowd>, <weather>, <greeting_word>,
+  # <stock_low>, <mine_news>, … The full table is in GUIDE.md ("gossip placeholders"), and
+  # `/lsk gossip placeholders <speakerId> <listenerId>` prints every tag with its live value.
+  # `enabled: false` restores the old behaviour, where only <partner> was replaced.
+  placeholders:
+    enabled: true
+    # Nearby players (within `hearing-distance`) at which <crowd> reads as busy / packed.
+    crowd-busy: 3
+    crowd-packed: 6
+  # What the town is talking about: <mine_news> / <traveler_tale> each pick one of these per line.
+  # Remove the block to fall back to the built-in defaults in GossipPlaceholders.
+  lore:
+    mine_news:
+      - "the deep mines flooded again"
+      - "adventurers cleaned out the deep shafts"
+    traveler_tale:
+      - "a sailor swears the ocean has a floor"
+      - "a pilgrim saw blue forests in the Nether"
   smalltalk-format: "<gold><npc></gold> <dark_gray>»</dark_gray> <gray><line></gray>"
-  # <partner> is replaced with the other NPC's name.
+  # Small-talk lines: <partner>/<npc> are kept as aliases for <listener>/<speaker>, and the format's <line>
+  # is the line itself. Every other tag in the table above works here too.
   smalltalk:
     - "Slow day today, <partner>?"
     - "Prices keep climbing, I tell you."
@@ -208,6 +232,1192 @@ gossip:
     - "I swear that jukebox has played the same disc all week."
     - "Fresh stock coming in tomorrow. Don't tell anyone."
 
+    - "Morning, <partner>."
+
+    - "Evening, <partner>. Still standing?"
+
+    - "Ah, <partner>. Just the face I wanted to see."
+
+    - "There you are, <partner>."
+
+    - "Got a minute, <partner>?"
+
+    - "Well, well. Look who's got time to chat."
+
+    - "<partner>! You look terrible. In a good way."
+
+    - "Hrm. <partner>."
+
+    - "Quiet out here, isn't it?"
+
+    - "You'll never guess what happened."
+
+    - "Come here, come here. Listen to this."
+
+    - "Don't mind me, just stretching the legs."
+
+    - "Fancy seeing you here, <partner>. Where else would you be, but still."
+
+    - "Any news, <partner>?"
+
+    - "Not interrupting anything, am I?"
+
+    - "How goes it, neighbor?"
+
+    - "Hard at work or hardly working, <partner>?"
+
+    - "Got a story for you. It's a short one. Mostly."
+
+    - "Right. Where were we yesterday?"
+
+    - "Long time no see. Since this morning."
+
+    - "Ah, the usual spot."
+
+    - "You look like you've got something to say, <partner>."
+
+    - "Pull up a fence post."
+
+    - "I've been meaning to ask you something."
+
+    - "Same time, same place, same aching back."
+
+    - "Psst. <partner>."
+
+    - "Sit down, sit down. Or stand. We always stand."
+
+    - "Before I forget, <partner> —"
+
+    - "Good to see a friendly face."
+
+    - "Is it just me or is today extra long?"
+
+    - "Anyway. Back to it."
+
+    - "Right, that's enough gossip for one day. Probably."
+
+    - "I should get back before something explodes."
+
+    - "Take care, <partner>. Watch the corners."
+
+    - "Say hello to the family."
+
+    - "We'll finish this tomorrow. Same fence."
+
+    - "Off I go. Emeralds don't count themselves."
+
+    - "Mind the creepers, <partner>."
+
+    - "Well, I'd love to keep chatting, but I'd love to sit more."
+
+    - "That's me done. Hrm."
+
+    - "Same time tomorrow?"
+
+    - "Don't work too hard. Work exactly the right amount."
+
+    - "Lock your door tonight, <partner>."
+
+    - "I'll bring bread next time. Probably."
+
+    - "Go on, get back to your customers. Both of them."
+
+    - "Good talk. Half of it, anyway."
+
+    - "If anyone asks, I was working."
+
+    - "Sleep well, <partner>. Or at all."
+
+    - "There goes the bell. Duty calls. Or panic. One of the two."
+
+    - "Alright. Places to be. Mostly here, but still."
+
+    - "Keep an eye on the sky."
+
+    - "Don't be a stranger, <partner>. Be a neighbor. It's cheaper."
+
+    - "I've said too much. As usual."
+
+    - "Right. Feet. Move. Go."
+
+    - "Later, <partner>. Try not to get robbed."
+
+    - "This was nice. Let's not tell anyone."
+
+    - "Off to pretend to be busy."
+
+    - "Stay dry, <partner>."
+
+    - "Hrm. Yes. Well. Goodbye."
+
+    - "Talk soon. If the phantoms don't get me first."
+
+
+
+  # ─── Short answers the partner can give to any line ───
+
+    - "Tell me about it."
+
+    - "You don't say."
+
+    - "Hrm."
+
+    - "Same here, same here."
+
+    - "I heard the same thing."
+
+    - "That's what I said!"
+
+    - "No. Really?"
+
+    - "Every single day, <partner>."
+
+    - "You're not wrong."
+
+    - "Well, that explains a lot."
+
+    - "I'd believe it."
+
+    - "Ha! Sounds about right."
+
+    - "Say that again? My ears are full of thunder."
+
+    - "Now that's something."
+
+    - "Don't remind me."
+
+    - "I'm not touching that one."
+
+    - "Could be worse. Could be raining."
+
+    - "You think so?"
+
+    - "Not in front of the customers, <partner>."
+
+    - "I've been saying that for years."
+
+    - "Mm. Mm-hm."
+
+    - "Oh, I know. I KNOW."
+
+    - "That's the spirit."
+
+    - "You and me both."
+
+    - "Since when?"
+
+    - "First I've heard of it."
+
+    - "Sounds like a you problem. Kidding. Mostly."
+
+    - "Look, I'm just glad it's not me this time."
+
+    - "Careful, someone might hear you."
+
+    - "Ah, the old story."
+
+    - "Fair enough."
+
+    - "I'll drink to that. Water. But still."
+
+    - "You're telling me."
+
+    - "That's one way to put it."
+
+    - "Wouldn't surprise me."
+
+    - "Did you now."
+
+    - "Well, well, well."
+
+    - "Hah. Classic."
+
+    - "I can't argue with that. I'd like to, but I can't."
+
+    - "Terrible. Just terrible. Go on."
+
+    - "Give it a week. It'll pass. Or it won't."
+
+    - "You're a better villager than I am, <partner>."
+
+    - "Keep telling yourself that."
+
+    - "As my mother used to say: hrm."
+
+    - "Same as it ever was."
+
+    - "That's the second time this week I've heard that."
+
+    - "Honestly? Same."
+
+    - "Speak for yourself."
+
+    - "Well, I never."
+
+    - "Nod and smile, <partner>. Nod and smile."
+
+    - "I'm going to pretend I didn't hear that."
+
+    - "Write that down. Somebody write that down."
+
+    - "Is that so."
+
+    - "And yet here we are."
+
+    - "Hrm. Hrm hrm."
+
+
+
+  # ═══════════════════════════ MASTER POOL ═══════════════════════════
+
+    # ── The classics ──
+
+    - "Slow day today, <partner>?"
+
+    - "Prices keep climbing, I tell you."
+
+    - "Did you see that adventurer earlier? Full netherite. FULL."
+
+    - "My feet are killing me."
+
+    - "You should try closing early some night, <partner>."
+
+    - "Heard there's a new stall opening down the row."
+
+    - "One of these days I'm taking a proper holiday."
+
+    - "The weather's been good for business, hasn't it?"
+
+    - "A creeper got into my storage again."
+
+    - "Between you and me, <partner> — best customers come after dark."
+
+    - "I swear that jukebox has played the same disc all week."
+
+    - "Fresh stock coming in tomorrow. Don't tell anyone."
+
+
+
+    # ── Shop life ──
+
+    - "Three customers before noon. Three. I counted."
+
+    - "Someone tried to pay me in rotten flesh again."
+
+    - "If one more person asks if I take diamonds, <partner>, I'm going to scream."
+
+    - "I restocked twice yesterday and still ran dry."
+
+    - "My sign's crooked. Been meaning to fix it for a month."
+
+    - "Do you ever get the feeling the shop next door is undercutting us?"
+
+    - "Had a fellow haggle for twenty minutes over a single emerald."
+
+    - "The trick, <partner>, is to smile and never lower the price."
+
+    - "I need a bigger chest. Or fewer things. One of the two."
+
+    - "Business is business, but I miss the quiet days."
+
+    - "I put the good stuff on the top shelf. Nobody looks up."
+
+    - "Half my stock is dust and the other half is spider eyes."
+
+    - "You know what sells? Bread. Always bread."
+
+    - "I raised my prices and sold more. Explain that, <partner>."
+
+    - "Ran out of change again. Emeralds only, folks."
+
+    - "Some days I think the shop owns me, not the other way round."
+
+    - "A wandering trader parked his llamas right in front of my door."
+
+    - "Those llamas spat at me. Twice."
+
+    - "I've got a customer who only comes in to look. Never buys. Just looks."
+
+    - "Do you ever dust your shelves, <partner>? Honestly?"
+
+    - "Rent's due again. Feels like it's due every week."
+
+    - "The counter needs replacing. It has a bite mark in it. Don't ask."
+
+    - "Word is the market's moving to the other side of town."
+
+    - "I've started closing for lunch. Best decision I ever made."
+
+    - "Inventory day tomorrow. Pray for me."
+
+    - "A kid knocked over my whole display. Didn't even say sorry."
+
+    - "You can always tell a first-timer. They stare at the prices like they're written in Galactic."
+
+    - "Sold my last saddle this morning. Should've charged more."
+
+    - "Someone told me to paint the storefront magenta. Magenta!"
+
+    - "Closed early yesterday. Sky fell. Not literally. Almost."
+
+    - "I sell lanterns and I still can't find my keys in the dark."
+
+    - "Every customer says 'just looking'. Nobody is ever just looking."
+
+    - "Bundles. Everyone wants bundles now. Nobody wanted bundles last year."
+
+    - "The most popular item in my shop is the chair by the door. It's not for sale."
+
+    - "I put out a tip jar. Somebody put a poisonous potato in it."
+
+    - "New sign's up. Spelled my own name wrong. Leaving it."
+
+    - "I've alphabetized the potions. Nobody noticed. I noticed."
+
+    - "The shelf collapsed. Under the weight of things nobody buys."
+
+    - "I'd expand the shop, but the wall's shared with the fletcher and he bites."
+
+    - "Nobody reads the sign. I could write anything. Tomorrow I might."
+
+    - "A customer paid, left, came back, and returned it. All in one breath."
+
+    - "The bell over my door broke. Now people just appear. It's unsettling."
+
+
+
+    # ── Money & the economy ──
+
+    - "Emeralds don't grow on trees. Well. Unless you're a farmer."
+
+    - "Everything costs an arm and a leg lately."
+
+    - "I saw a stack of diamonds change hands like it was cobblestone."
+
+    - "Back in my day, an emerald bought you a whole loaf."
+
+    - "Whoever set the exchange rate on gold has never been to the Nether."
+
+    - "I keep my savings under the floorboards. Don't tell anyone, <partner>."
+
+    - "Banks. Who needs them. I've got a chest and a good lock."
+
+    - "A tax collector came by. I hid in the cellar."
+
+    - "Somebody's flooding the market with cheap iron. It's ruining everyone."
+
+    - "Copper's worth nothing and everything at the same time."
+
+    - "If wishes were emeralds, <partner>, we'd both be retired."
+
+    - "I'd sell the shop, but who'd buy it? Look at it."
+
+    - "A penny saved is a penny the creeper hasn't found yet."
+
+    - "The rich adventurers tip. The poor ones haggle. Neither says thank you."
+
+    - "Gold's shiny and useless. Like most of my customers' advice."
+
+    - "Prices are up, wages are flat, and the golem still works for free."
+
+    - "I found an emerald in the road. Spent the whole day suspicious of it."
+
+    - "Whoever's buying all the wool is either very cold or very rich."
+
+
+
+    # ── Trades & professions ──
+
+    - "Cartographer wanted three emeralds for a map of the town. I live in the town."
+
+    - "The armorer's diamond prices went up again. He blames the mountain. The mountain's been there forever."
+
+    - "Fletcher's out of sticks. A fletcher. Out of sticks."
+
+    - "The librarian's got a new enchanted book. Won't say what it does. Won't let anyone touch it."
+
+    - "Clerics. Redstone for emeralds. Emeralds for redstone. Round and round."
+
+    - "The farmer's bread is a bit smaller this season. Same price. Funny, that."
+
+    - "Leatherworker says saddles are back in fashion. Since when did saddles leave?"
+
+    - "The mason's selling quartz now. Quartz! From where?"
+
+    - "The shepherd charges extra for blue wool. Blue is just wool that met a flower."
+
+    - "Toolsmith fixed my hoe. Now it's a slightly shorter hoe."
+
+    - "The weaponsmith sharpened a sword so well it's technically a spoon now."
+
+    - "The fisherman's trading campfires. I don't know what happened. Neither does he."
+
+    - "The butcher's doing a deal on rabbit stew. Two for the price of asking where the rabbits went."
+
+    - "Everyone wants to be a librarian until they see how many books there are."
+
+    - "A nitwit tried to open a shop. He sells nothing. He's doing very well."
+
+
+
+    # ── Customers & adventurers ──
+
+    - "There's a hero in town. You can tell by the swagger."
+
+    - "Another one came in with an elytra and no shirt. Priorities."
+
+    - "A customer set my counter on fire trying to show me a flint trick."
+
+    - "One of them asked if I sell 'the good enchants'. Like I'd keep them in the back."
+
+    - "Adventurers never wipe their feet. Soul sand everywhere."
+
+    - "That one with the trident? Terrifying. Tips well, though."
+
+    - "They always want to know where the stronghold is. Like I'd know."
+
+    - "Somebody's cat followed me home. I think it's an adventurer's."
+
+    - "A player asked me for directions and then flew off before I finished."
+
+    - "They come in dripping wet, buy one thing, and leave a puddle."
+
+    - "Heard one of them has a base in the sky. In the sky, <partner>."
+
+    - "I met one who could only speak in questions. Very unsettling."
+
+    - "You'd think with all that armor they'd be less jumpy."
+
+    - "The nice ones bring flowers. The rest bring zombies."
+
+    - "One tried to trade me a shulker box full of dirt. Full of dirt."
+
+    - "I don't trust anyone who carries that many buckets."
+
+    - "They call it 'exploring.' I call it 'never coming back to pay your tab.'"
+
+    - "A hero saved my roof from a phantom last night. Then asked for a discount."
+
+    - "There's one who keeps naming things. Every chicken has a name now."
+
+    - "The tall quiet one with the bow? Been staring at the same wall for an hour."
+
+    - "One of them walked in with a mace the size of a door. Bought a carrot."
+
+    - "They keep punching trees. Just punching them. Grown adults."
+
+    - "A customer opened every chest I own and then said 'nice place'."
+
+    - "The adventurers with the torches everywhere. Every wall. Every floor. Every cow."
+
+    - "One asked me if I 'respawn'. I don't know what that means and I don't like it."
+
+    - "You can hear them coming. Clank clank clank. Like a walking anvil."
+
+    - "One of them sleeps in my shop when it rains. I've stopped arguing."
+
+
+
+    # ── Weather & seasons ──
+
+    - "Sky looks heavy today. Storm's coming, mark my words."
+
+    - "Rain's good for the crops and bad for my knees."
+
+    - "I can feel the thunder in my teeth."
+
+    - "Beautiful morning. Almost makes up for the night."
+
+    - "Sun's out. Skeletons are in. Fair trade."
+
+    - "This wind is going to take my awning clean off."
+
+    - "Snow already? I haven't put the pumpkins away."
+
+    - "Hot enough to cook an egg on the cobblestone."
+
+    - "Fog like this, <partner>, you can't see a creeper until it's grinning at you."
+
+    - "I love the smell of rain on the oak planks."
+
+    - "Frost on the windows this morning. Winter's early."
+
+    - "The cherry trees are blooming down by the river. You should go see."
+
+    - "Long days, short nights. My favorite time of year."
+
+    - "Every time it thunders my cat hides in the furnace. The furnace."
+
+    - "The river's high. Someone's dam broke upstream, I reckon."
+
+    - "The leaves are turning. So is my back."
+
+    - "First warm day and everyone's outside pretending to work."
+
+    - "The wind's from the swamp today. You can smell it. Everyone can smell it."
+
+
+
+    # ── Mobs & danger ──
+
+    - "Zombies at the door again last night. I kept the lights on."
+
+    - "A skeleton shot my sign. Right through the O."
+
+    - "Do you hear that hissing? No? Good. Neither do I. Probably."
+
+    - "I had a spider on my ceiling for a week. Named it Gerald. Gerald's gone now."
+
+    - "Phantoms have been circling. Somebody in this town isn't sleeping."
+
+    - "Saw an enderman carrying a block of my floor. My floor, <partner>."
+
+    - "Witches. Ugh. Don't get me started on witches."
+
+    - "The iron golem walked into my display again. Again."
+
+    - "I heard a pillager horn at dawn. Nobody else did. Everyone says I'm imagining it."
+
+    - "Drowned came up through the well. Through the well!"
+
+    - "If you see a slime on my step, that's not mine, I want it known."
+
+    - "A baby zombie on a chicken. That's a real thing. I saw it."
+
+    - "The golem's got a new flower. He's very proud."
+
+    - "Never leave your door open. I learned that with a creeper and a very expensive chest."
+
+    - "Bats in the attic. Not a metaphor."
+
+    - "A wolf's been hanging around the butcher's. Can't blame it."
+
+    - "The raid last spring? Still finding crossbow bolts in the thatch."
+
+    - "I keep a torch by the bed. Two, actually. Three."
+
+    - "Villagers should be allowed to carry swords. I'm just saying."
+
+    - "That cat of yours keeps the creepers off, <partner>. Worth its weight in emeralds."
+
+    - "A vindicator called me Johnny. I'm not Johnny."
+
+    - "The zombie at the gate was wearing a helmet. A nice one. Better than the guard's."
+
+    - "Something's living under the bridge. It hums. I don't cross after dark."
+
+    - "The skeletons are getting better aim. Or I'm getting slower. Both, probably."
+
+    - "An evoker's fangs came up through the fletcher's floor. He's selling the floor."
+
+    - "The bees stung the pillager. The bees are heroes. The bees are also furious."
+
+    - "Never trust a quiet cave. Never trust a loud one either."
+
+
+
+    # ── Daily life & complaints ──
+
+    - "My back's gone. Lifting hay bales at my age."
+
+    - "Slept terribly. Something was tapping on the shutters."
+
+    - "Bread and stew, stew and bread. I need a new cook."
+
+    - "The well water tastes like gravel again."
+
+    - "I lost my favorite hat. If you see it, <partner>, it's the brown one."
+
+    - "Haven't had a day off since the harvest festival."
+
+    - "My neighbor plays the note blocks at all hours."
+
+    - "There's a leak in my roof right over my bed. Right over it."
+
+    - "I stubbed my toe on a lantern. Who leaves a lantern on the floor? Me, apparently."
+
+    - "I've been meaning to clean out the cellar for three seasons now."
+
+    - "The bell rings and everybody runs. Nobody asks who rang it."
+
+    - "Somebody keeps moving my composter. I don't know who. I have theories."
+
+    - "I need a nap. I need a week of naps."
+
+    - "My knees predict rain better than any almanac."
+
+    - "You ever just stand at your door and stare at nothing, <partner>? Just me?"
+
+    - "The kids ran through my flowerbed. Again. Little goblins."
+
+    - "My hands smell like fish. It's been days."
+
+    - "I fixed the fence. The fence fell down. I'm not fixing the fence."
+
+    - "There's a sock on the roof. Not mine. Been there a month."
+
+    - "Someone's been using my composter as a bin. It's a bin, technically. Still."
+
+    - "I'd complain about the noise but I am the noise, apparently."
+
+
+
+    # ── Food & drink ──
+
+    - "Mushroom stew again. I'm turning into a mushroom."
+
+    - "Someone's baking cake. I can smell it from here."
+
+    - "Golden carrots are a scam. They're just carrots that cost more."
+
+    - "The baker's bread is better than mine and it's killing me."
+
+    - "I'd sell my own boots for a proper pumpkin pie."
+
+    - "Honey on toast, <partner>. That's the secret to a good morning."
+
+    - "Cooked cod for breakfast, cooked cod for lunch. Guess what's for dinner."
+
+    - "There's a melon patch behind the smithy. Don't tell the smith."
+
+    - "Suspicious stew. The name should've been a warning."
+
+    - "Sweet berries are worth the thorns. Barely."
+
+    - "I traded three emeralds for a single glow berry. Don't judge me."
+
+    - "Rabbit stew. Now that's a meal. Shame about the rabbits."
+
+    - "Somebody's been milking my cow. It's not me. She looks smug."
+
+    - "I ate a pufferfish once. Once."
+
+    - "Beetroot soup. It's red. That's all I can say for it."
+
+    - "Baked potato with nothing on it. The meal of champions. Poor champions."
+
+    - "The tavern's stew changes color every day. Nobody asks."
+
+    - "Chorus fruit. Took one bite, ended up on the roof."
+
+
+
+    # ── Rumors & gossip ──
+
+    - "They say the cartographer has a map to somewhere she won't name."
+
+    - "The librarian is hiding something in the lectern. I'd bet an emerald."
+
+    - "The fletcher and the farmer? Oh, there's a story there."
+
+    - "Word is the old mine under the hill isn't as empty as they say."
+
+    - "Someone saw lights in the swamp again. Blue ones."
+
+    - "The cleric's been buying an awful lot of gunpowder. For 'research'."
+
+    - "I heard the mayor's not actually the mayor. Just wears the hat."
+
+    - "The armorer's been whistling. He never whistles. Something's up."
+
+    - "Don't repeat this, <partner>, but the toolsmith cried at the well yesterday."
+
+    - "There's a ghost in the church tower. Or a very tall villager. Nobody's checked."
+
+    - "The shepherd dyed all the sheep pink and blamed a wizard."
+
+    - "Somebody's been leaving flowers on the golem every morning."
+
+    - "I heard the wandering trader's llamas are smarter than the trader."
+
+    - "The mason's building something square. Very square. Suspicious."
+
+    - "There's a rumor of treasure under the fountain. There's always a rumor of treasure under something."
+
+    - "Rumor says the old lighthouse keeper never left. Just stopped answering."
+
+    - "The leatherworker's in love. You can tell. He's been polite."
+
+    - "They found a chest in the well. Empty. Which is somehow worse."
+
+    - "A nitwit's been elected to something. I don't know what. Neither does he."
+
+    - "Somebody built a portal behind the tavern. Purple light all night."
+
+    - "The baker's secret ingredient is a secret because it's just more butter."
+
+    - "Word is the new guard is afraid of chickens. Word is correct."
+
+    - "The fisherman caught a boot. Then the other boot. Then a name tag that said 'Boots'."
+
+    - "Somebody's been sleeping in the church. The pews are warm in the morning."
+
+
+
+    # ── Other townsfolk ──
+
+    - "Have you seen the butcher's new apron? Blood red. Practical, I suppose."
+
+    - "The blacksmith says hello. Well, he grunted. Same thing."
+
+    - "That new fisherman talks to the fish. Out loud."
+
+    - "The librarian shushed me in the street. In the street, <partner>."
+
+    - "The cleric smells like brewing again."
+
+    - "Farmer says the potatoes are unhappy. I didn't ask."
+
+    - "The cartographer got lost coming here. The cartographer."
+
+    - "Old Greybeard by the fountain has stories. All of them the same story."
+
+    - "The mason and I don't speak. It's about a wall. Long story."
+
+    - "The tailor measured me for a coat two years ago. Still waiting."
+
+    - "The bell ringer's got a cold. Whole town's going to sleep in."
+
+    - "The nitwit waved at me. Nicest part of my week."
+
+    - "The armorer's started a choir. It's him and the golem. The golem's the strong part."
+
+    - "The shepherd names every sheep after former customers. It's getting personal."
+
+    - "The fletcher's teaching the kids archery. My windows would like a word."
+
+
+
+    # ── The wider world ──
+
+    - "Never go to the Nether without a bucket. Don't ask how I know."
+
+    - "The End is real. My cousin's neighbor's brother went. Never came back, but still."
+
+    - "The ocean monument's been humming again. The fishermen won't go near it."
+
+    - "There's a village over the mountain that trades in nothing but paper."
+
+    - "I've never seen the sea. Can you believe that, <partner>?"
+
+    - "The jungle temple is just a temple. No treasure. I checked. Thoroughly."
+
+    - "Mesa clay makes the best pots. Worst roads."
+
+    - "Don't trust a swamp. Any swamp."
+
+    - "Somebody built a tower so tall the phantoms have to fly around it."
+
+    - "The desert well's gone dry. Very on-brand for a desert."
+
+    - "There's a mansion in the dark forest. Nobody who goes to look comes back to describe it."
+
+    - "I miss the plains. Nothing sneaks up on you in the plains."
+
+    - "The mountain pass is snowed in. No traders until spring."
+
+    - "They're calling the new mineshaft 'safe'. They called the last one that too."
+
+    - "There's a deep dark place under the mountain. Even the miners whisper about it."
+
+    - "Cherry groves. That's where I'd retire. Petals and quiet."
+
+    - "The mushroom island's real. Cows are red there. Red!"
+
+    - "The trial chambers under the ridge? People go in cheerful. They come out rich or not at all."
+
+    - "Badlands gold is the only gold I trust. It's already been through enough."
+
+    - "Somebody found a shipwreck in a lake. A lake. Nobody's explaining that."
+
+
+
+    # ── Redstone & gadgets ──
+
+    - "Someone's built a machine that opens doors by itself. Witchcraft."
+
+    - "The fletcher wired up his shop with redstone. Now it ticks all night."
+
+    - "I don't understand redstone and I don't want to."
+
+    - "A piston squashed my hat. My good hat."
+
+    - "The armorer's got a lamp that turns on when you walk in. Spooky. Convenient, but spooky."
+
+    - "Somebody automated the farm and now the farmer just watches. Sad, really."
+
+    - "A hopper ate my emerald. Just took it. Gone."
+
+    - "That dispenser by the gate shoots arrows at whoever walks past. It's meant to. Still rude."
+
+    - "Minecarts. They're never where you left them."
+
+    - "The bell tower's on a timer now. Rang at three in the morning. Three."
+
+    - "I saw a door that opens for players but not for zombies. Now that's a door."
+
+    - "There's a lever in the square that does nothing. Everyone pulls it. Every day."
+
+    - "The observer on the mason's roof watches me. I know it's watching."
+
+
+
+    # ── Animals & pets ──
+
+    - "The bees are angry today. Somebody's been at the hives."
+
+    - "My cat's been sitting on the chest I need. All day. She knows."
+
+    - "Sheep got out again. Found one on the roof. Don't ask me how."
+
+    - "There's a fox stealing eggs. Clever little thief."
+
+    - "The pigs learned to open the gate. I've lost control of the farm."
+
+    - "That parrot keeps mimicking creepers. My heart can't take it."
+
+    - "A goat rammed the smith clean over the fence. Best day of the year."
+
+    - "Somebody's axolotl escaped into the fountain. It's pink. It's thriving."
+
+    - "The frogs by the pond are louder than the tavern."
+
+    - "A wolf followed me home. I gave it a bone. Now it's my wolf, apparently."
+
+    - "Chickens everywhere. I don't own chickens. Where are they coming from?"
+
+    - "Horse threw the fletcher into a cactus. He's fine. His pride isn't."
+
+    - "The turtles came back to the beach. Little ones everywhere. Careful where you step."
+
+    - "There's a donkey that won't move unless you sing to it. The traders swear by it."
+
+    - "My cow gives more milk when I read to her. I'm not proud of this."
+
+    - "An allay keeps bringing me pebbles. I said thank you once. Big mistake."
+
+    - "A camel sat down in the road and that was the road's day over."
+
+    - "The armadillo rolled into the shop, rolled around the shop, rolled out. Good visit."
+
+    - "The sniffer dug up my whole garden looking for a seed. It found one. Worth it, apparently."
+
+
+
+    # ── Music & the jukebox ──
+
+    - "Cat. Again. Somebody play a different disc."
+
+    - "Whoever put Pigstep on the tavern jukebox is a hero and a menace."
+
+    - "The note block kid's practicing again. Same three notes. Same three."
+
+    - "I hummed a tune all day and now the golem's humming it. I think."
+
+    - "The tavern's got a new disc. Sounds like whales. Sad whales."
+
+    - "Music's fine. It's the dancing that worries me."
+
+    - "Someone found a disc in the woods. Sounds like the woods. Nobody plays it twice."
+
+    - "I can hear the goat horns from the hills. Either a celebration or an emergency. Same sound."
+
+
+
+    # ── Nights & sleep ──
+
+    - "Long night. Longer than usual. They keep getting longer."
+
+    - "If I don't sleep tonight the phantoms will find me. They always know."
+
+    - "My bed's by the window. Bad idea. Great view, bad idea."
+
+    - "Went to bed at dusk, woke up at dusk. That can't be right."
+
+    - "The night's quiet in a way I don't like."
+
+    - "I dreamt of emeralds. Woke up to spiders. Story of my life."
+
+    - "Whoever's up all night on the wall with the bow: thank you. Also, go to sleep."
+
+    - "I counted sheep to fall asleep. Then I remembered they'd got out again."
+
+
+
+    # ── Tools & crafts ──
+
+    - "My best pickaxe snapped on gravel. Gravel!"
+
+    - "There's no feeling like a fresh pair of shears."
+
+    - "The smith says my sword's fine. My sword is a stick with a nail in it."
+
+    - "I've patched this apron more times than I've worn it."
+
+    - "Somebody sharpened my axe as a favor. Now it cuts through the counter."
+
+    - "They enchant boots now. Boots! What's next, enchanted hats?"
+
+    - "I keep a spare bucket. You always need a spare bucket."
+
+    - "An anvil fell through the smith's floor. Second time this month."
+
+    - "Nothing beats a well-made chest. Oak. Solid. Doesn't judge you."
+
+    - "The grindstone took the enchantment off my hoe. And a bit of my thumb."
+
+    - "A brush! They sell brushes now. For dusting sand. On purpose."
+
+
+
+    # ── Roads & town works ──
+
+    - "The bridge is out again. Somebody keeps borrowing the planks."
+
+    - "Whoever's in charge of the lampposts: two are out on my street."
+
+    - "The main road's all mud. I've lost a boot to it."
+
+    - "They're paving the square with granite. Granite! Who paid for that?"
+
+    - "The fountain's full of pufferfish. On purpose, apparently."
+
+    - "Somebody built a wall around the well. Then a wall around the wall."
+
+    - "The town gate's been open all week. Might as well put out a welcome mat for the zombies."
+
+    - "The copper roof on the hall's gone green. They're calling it 'heritage'."
+
+    - "The path to the mill has a hole in it. The hole has a hole in it."
+
+
+
+    # ── Travelers' tales ──
+
+    - "A traveler told me there's a place where it's always snowing. Sounds awful. I want to go."
+
+    - "Met a sailor who swears the ocean has a floor. A floor, <partner>."
+
+    - "Someone came through saying they'd been to the moon. Smelled like a swamp, though."
+
+    - "A miner said the deep places sing if you stand still. He didn't stand still."
+
+    - "Traders say the mountains have goats that jump higher than houses."
+
+    - "A wanderer told me the sky at the edge of the world is just... white. Then he left."
+
+    - "A pilgrim said the Nether has forests. Blue ones. He was very pale."
+
+    - "One told me the ice up north is thick enough to build on. So they did. Whole city."
+
+
+
+    # ── Dreams & aspirations ──
+
+    - "One day I'll have a stall with a roof that doesn't leak."
+
+    - "I'm going to write a book. About stew. It'll be short."
+
+    - "Someday, <partner>, I'm going to see the ocean. Someday."
+
+    - "I want a garden. Just flowers. No potatoes."
+
+    - "I'd like to be a librarian. They sit. All day they sit."
+
+    - "Retirement. A hammock. A bee farm. Is that too much?"
+
+    - "If I could learn one thing, it'd be how to swim. Or fly. Flying seems easier."
+
+    - "I've always wanted a horse. A slow one. I'm not in a hurry."
+
+    - "I'm saving for a boat. Not to go anywhere. Just to have."
+
+    - "When I'm rich I'll hire someone to say 'Hrm' at customers for me."
+
+    - "A cottage by the cherry trees. A cat. A door that locks. That's the dream."
+
+
+
+    # ── Philosophy & musing ──
+
+    - "Do you ever think about how the sun just... goes around? Every day? For us?"
+
+    - "Every day the same, and every day I'm surprised by it."
+
+    - "What's a village, really, but a lot of people agreeing not to leave?"
+
+    - "The golem never sleeps. I wonder what he thinks about."
+
+    - "You know what I've learned, <partner>? Nothing. But I've learned it thoroughly."
+
+    - "If a tree falls in the forest and nobody's there, who picks up the wood?"
+
+    - "The moon's been full for weeks. Or I've been up too long. Hard to say."
+
+    - "We're all just standing in front of doors, aren't we."
+
+    - "Every block was placed by someone. Think about that."
+
+    - "I don't know what's beyond the world border and I've decided that's fine."
+
+    - "Time flies when you're standing very still."
+
+    - "The best conversations happen over a fence."
+
+    - "A shop is just a house that says yes to strangers."
+
+    - "You can't take it with you. Except in a shulker box. Then you can."
+
+
+
+    # ── Humor & the absurd ──
+
+    - "I taught my chicken to sit. Now it won't do anything else."
+
+    - "I once traded a sheep for a slightly better sheep. Peak commerce."
+
+    - "My cat brought me a phantom membrane. As a gift. I think."
+
+    - "You can lead a horse to water but you'll need a lead."
+
+    - "I sneezed and an enderman took it personally."
+
+    - "Someone dressed the golem in a pumpkin. He seems happier, honestly."
+
+    - "I fell in the pond again. Same pond. Same spot. Same fish laughing."
+
+    - "I asked the librarian for a book with no words. She gave me a quill."
+
+    - "I've been told I say 'Hrm' too much. Hrm."
+
+    - "There's a parrot in town that repeats everything. Everything. Be careful, <partner>."
+
+    - "I once bought a map of my own shop. Got lost on the way home."
+
+    - "My reflection in the water looked disappointed in me. Fair."
+
+    - "Somebody named their sword. It's called 'Sword'. I respect it."
+
+    - "The chickens have unionized. They meet behind the barn."
+
+    - "Bought a bell. Rang it. Everybody panicked. Never again."
+
+    - "I tried to ride a pig. The pig tried to ride me. We called it even."
+
+    - "The fletcher shot an apple off my head. I wasn't holding an apple. Still don't know."
+
+    - "Tripped over a turtle. Apologized to the turtle. Turtle did not accept."
+
+
+
+    # ── Festivals & events ──
+
+    - "The harvest festival's coming. I need to fix the stall lights."
+
+    - "Last year's fireworks set the hay on fire. This year we're using more hay."
+
+    - "The market fair's in three days and I have nothing to sell."
+
+    - "Bonfire night. Bring marshmallows. Do we have marshmallows?"
+
+    - "Somebody's organizing a golem parade. One golem. Very short parade."
+
+    - "Midsummer's coming. The nights get short and the parties get long."
+
+    - "The fishing contest is rigged. The fisherman always wins. Suspicious."
+
+    - "The bake-off's next week. The baker's already unbearable."
+
+    - "Pumpkin carving night. Last year someone carved a creeper and cleared the square."
+
+
+
+    # ── Family & home ──
+
+    - "My little one wants to be an adventurer. I want her to be a baker."
+
+    - "Grandmother always said: never trust a quiet night."
+
+    - "My brother moved to the taiga. Says the wolves are friendlier than the neighbors."
+
+    - "The kids built a snowman in the shop. In summer. I don't know how."
+
+    - "My mother sold shears on this same corner. Same corner, <partner>."
+
+    - "Uncle used to say a shopkeeper's best tool is a comfortable stool."
+
+    - "The dog's getting old. Sleeps by the furnace all day. Good dog."
+
+    - "Cousin's coming to stay. Cousin snores like a ravager."
+
+    - "My grandfather built this counter. My grandfather was not a carpenter."
+
+
+
+    # ── Health & old age ──
+
+    - "I've had this cough since the swamp trip."
+
+    - "The cleric gave me a potion for my back. Now I can't feel my feet."
+
+    - "Sleep's the best medicine. Phantoms disagree."
+
+    - "I ate a golden apple once and I've been chasing that feeling since."
+
+    - "My eyes aren't what they were. Everything's a creeper until it isn't."
+
+    - "I bent down for an emerald and stayed there a while. Good emerald, though."
+
+    - "The cleric says I need more milk. The cow says I need to ask nicer."
+
+
+
+    # ── Nostalgia ──
+
+    - "This town used to be three huts and a well."
+
+    - "Remember when the river ran clear, <partner>?"
+
+    - "They used to hold the market by the old oak. Before the lightning."
+
+    - "Back then a torch was a luxury. Now the kids waste them."
+
+    - "I remember when the golem was new. Shiny. Optimistic."
+
+    - "The old road went through the woods. Nobody uses it now. Nobody should."
+
+    - "There was a time you could leave your door open. Then creepers were invented. Or arrived. Or something."
+
+    - "The first shop on this row sold nothing but string. Made a fortune. Nobody knows why."
+
+
+
+    # ── Questions for the partner ──
+
+    - "How's the family, <partner>?"
+
+    - "What's your secret, <partner>? You never look tired."
+
+    - "You hear that noise last night, <partner>, or was it just me?"
+
+    - "Any news from the coast, <partner>?"
+
+    - "You still have that old map, <partner>? The torn one?"
+
+    - "Be honest, <partner>. Does this hat work?"
+
+    - "When did you last take a day off, <partner>? A real one?"
+
+    - "You ever think about packing up and leaving, <partner>?"
+
+    - "What are you charging for wool these days, <partner>?"
+
+    - "Did the trader come by your place too, <partner>?"
+
+    - "Did you ever find out who took your ladder, <partner>?"
+
+    - "Do you lock your back door, <partner>?"
+  
 # AI-generated NPC chatter (optional, OFF by default). When enabled, conversation beats that have no
 # authored dialog line ask an LLM for the next line instead of the static smalltalk pool — with the
 # speaker's `persona` (character.yml / /lsk persona <id> …), the partner, the scene, and a short
@@ -236,7 +1446,7 @@ ai-chat:
     - name: openrouter
       url: https://openrouter.ai/api/v1/chat/completions
       keys: []            # e.g. ["sk-or-…"]
-      models: ["meta-llama/llama-3.3-70b-instruct:free", "google/gemini-2.0-flash-001"]
+      models: ["stealth/space-bunny-alpha", "nvidia/nemotron-3.5-lightning:free"]
 
 # Friendly duels (per-NPC opt-in: /lsk spar <id> on, optionally /lsk spar <id> region <wgRegion>).
 # The NPC NEVER attacks first: a player hitting a spar-enabled NPC (inside its arena region, if set)

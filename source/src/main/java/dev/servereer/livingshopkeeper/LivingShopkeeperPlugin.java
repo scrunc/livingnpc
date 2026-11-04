@@ -153,6 +153,7 @@ public final class LivingShopkeeperPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         if (speech != null) speech.stopAll();
+        try { dev.servereer.livingshopkeeper.api.Puppets.removeAll(); } catch (Throwable ignored) { }
         if (characterManager != null) characterManager.shutdown();
         if (interactListener != null && getServer().getPluginManager().getPlugin("packetevents") != null) {
             try {
@@ -166,6 +167,11 @@ public final class LivingShopkeeperPlugin extends JavaPlugin {
 
     public static LivingShopkeeperPlugin get() {
         return instance;
+    }
+
+    /** The shared skin cache (also used by {@link dev.servereer.livingshopkeeper.api.Puppets}). */
+    public SkinCache skinCache() {
+        return skinCache;
     }
 
     /** The lobby seat wand (bind an admin's wand clicks to an NPC). */

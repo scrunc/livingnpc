@@ -118,6 +118,21 @@ The name is used in subtitles and as the default floating name. MiniMessage is a
 `<gold><b>Bruno the Blacksmith`. A raw texture value can be too long for a Minecraft command; use a player
 name or textures URL when possible.
 
+### Character flavour (gossip placeholders)
+
+```text
+/lsk job <id> <text…>        what the NPC does            → <speaker_job> / <listener_job>
+/lsk trait <id> <text…>      how it carries itself       → <speaker_trait> (first word only)
+/lsk mood <id> <text…>       how it feels right now      → <mood_speaker> / <mood_listener>
+/lsk job|trait|mood <id> show      print the current value
+/lsk job|trait|mood <id> clear     remove it (back to the default)
+/lsk gossip placeholders <speakerId> <listenerId>
+```
+
+The three values are free text and persist in the character's `character.yml`; the long form is what the
+NPC-to-NPC gossip lines substitute (section 6.7). `gossip placeholders` prints every gossip tag with the
+value it resolves to at your location — run it in-game, standing where the two NPCs talk.
+
 ### Floating tags
 
 ```text
@@ -310,6 +325,9 @@ Supported dialog text placeholders are:
 <time>     morning, day, evening, or night wording
 ```
 
+NPC-to-NPC gossip lines (`config.yml` → `gossip.smalltalk`) support a much larger set — job, trait, mood,
+place, weather, crowd, lore — documented in **section 6.7**.
+
 Audio is prerecorded, so placeholders are substituted in the subtitle only. Record voice lines that sound
 natural without a dynamic name or price. `subtitle-mode: chat` is the default. `action_bar` shows the line
 above the hotbar. `bubble` currently falls back to chat in the dialog engine.
@@ -342,6 +360,73 @@ nodes:
 
 The normal chat message is used for replies. Keep options short enough to fit their item names. A `goto`
 target must be another menu node to continue; otherwise the GUI closes.
+
+### 6.7 Gossip placeholders (NPC-to-NPC lines)
+
+The lines NPCs say to **each other** — `config.yml` → `gossip.smalltalk`, plus the surrounding
+`gossip.smalltalk-format` — are filled from a live snapshot of the two characters and the world (job, trait,
+mood, clock, weather, crowd, place, lore). Authored dialog packs (`text:` in `dialog/*.yml`) still only
+support `<player>` / `<npc>` / `<time>`; the table below applies to the gossip pool.
+
+Turn it off with `gossip.placeholders.enabled: false`, which restores the old behaviour where only
+`<partner>` was replaced. Every tag is optional: a character without `job:`/`trait:`/`mood:` simply uses the
+documented default, and a misspelled tag is left in the line **and** logged once for you to fix.
+
+| Tag | What it reads |
+|---|---|
+| `<speaker>` · `<npc>` | who is talking (plain name, capped at 24 chars) |
+| `<listener>` · `<partner>` | who is being talked to |
+| `<speaker_job>` · `<listener_job>` | `character.yml` → `job:` (default `trader`) |
+| `<speaker_trait>` · `<listener_trait>` | first word of `trait:` (`gruff ex-miner` → `gruff`, default `plain`) |
+| `<mood_speaker>` · `<mood_listener>` | `character.yml` → `mood:` (default `content`) |
+| `<time>` | `day` · `evening` · `night` · `morning` (same wording as dialog `<time>`) |
+| `<daypart>` | `morning` · `noon` · `dusk` · `midnight` |
+| `<day>` | world day counter |
+| `<weather>` | `clear` · `rain` · `thunder` |
+| `<space>` | the outing space id while away, `road` while walking there, else `market` |
+| `<crowd>` | `quiet` · `busy` · `packed` (thresholds: `gossip.placeholders.crowd-busy` / `crowd-packed`) |
+| `<players_near>` | how many players are within `hearing-distance` |
+| `<stall>` | the WorldGuard plot at the speaker's post, else `the stall` |
+| `<topic>` | `smalltalk` today (later: prices, mines, …) |
+| `<last_line>` | the previous line, capped at 60 chars (empty today) |
+| `<beat>` | `1st exchange`, `2nd exchange`, … (always `1st` today) |
+| `<relationship>` | `neighbors` today (later: friends, rivals, strangers) |
+| `<greeting_word>` | `Morning` · `Afternoon` · `Evening` |
+| `<sales_today>` · `<last_sold>` · `<last_buyer>` · `<stock_low>` | shop counters — stubbed `0` · `goods` · `a traveler` · `bread` until the shop engine exposes real numbers |
+| `<mine_news>` · `<traveler_tale>` | one line from `gossip.lore.mine_news` / `gossip.lore.traveler_tale` |
+| `<duel_winner>` | a player currently duelling an NPC within earshot, else `nobody` |
+| `<line>` | the spoken line itself — only useful in `gossip.smalltalk-format` |
+
+Flavour fields are set per character and persisted in `characters/<id>/character.yml`:
+
+```text
+/lsk job mira blacksmith          → <speaker_job> / <listener_job>
+/lsk trait mira gruff ex-miner    → <speaker_trait> (only "gruff" is shown)
+/lsk mood mira tired              → <mood_speaker> / <mood_listener>
+/lsk job mira show  ·  /lsk mood mira clear
+```
+
+Example lines for `gossip.smalltalk`:
+
+```yaml
+gossip:
+  placeholders:
+    enabled: true
+  smalltalk-format: "<gold><speaker></gold> <gray>to <listener></gray> » <line>"
+  smalltalk:
+    - "Slow trade today, <partner>? All the coin's up at <space>, I reckon."
+    - "Tell me about it. My <stock_low> hasn't moved since <daypart>."
+    - "<greeting_word>, <listener_trait>! Sold <sales_today> <last_sold> in this <weather>?"
+    - "Heard <mine_news>, <partner>. <traveler_tale>."
+    - "<crowd> out there for a <daypart>, <speaker_job> or not."
+```
+
+`/lsk gossip placeholders <speakerId> <listenerId>` prints every tag with the value it would resolve to
+**right where you stand** — the fastest way to see why a line reads oddly.
+
+Two rules worth knowing when authoring: a substitution can never inject markup into a line (values are
+stripped of MiniMessage/PAPI tokens and length-capped first), and it is never re-scanned — so a `<partner>`
+that the pool itself inserts is the author's business, not a loop.
 
 ## 7. Voice setup
 
@@ -418,7 +503,24 @@ combat:
   enabled: true
   reaction: flee
   react-after-hits: 3
+
+gossip:
+  enabled: true                  # NPC↔NPC chatter at all
+  line-interval-seconds: 7
+  smalltalk-format: "<gold><npc></gold> <dark_gray>»</dark_gray> <gray><line></gray>"
+  placeholders:
+    enabled: true                # false = pre-placeholder behaviour (<partner> only)
+    crowd-busy: 3                # nearby players at which <crowd> reads "busy"
+    crowd-packed: 6              # … and "packed"
+  lore:
+    mine_news: ["the deep mines flooded again"]
+    traveler_tale: ["a sailor swears the ocean has a floor"]
+  smalltalk:
+    - "Slow trade today, <partner>? All the coin's up at <space>, I reckon."
 ```
+
+`gossip.placeholders` and `gossip.lore` are optional — a config.yml written before they existed keeps
+working with the built-in defaults (see section 6.7 for the full tag table).
 
 Changes to config normally require `/lsk reload`. Test high-impact values on a staging server first. In
 particular, lower `voice.distance`, increase dialog cooldowns, and disable combat in public hubs if those
@@ -608,6 +710,24 @@ nodes:
 
 Enable a reasonable `shop.gossip-chance` and `shop.gossip-range`; neighboring shop NPCs can occasionally
 chat while idle and return to their customers when needed.
+
+The lines above are fixed text. When **no** authored node is eligible, the fallback pool in `config.yml`
+(`gossip.smalltalk`) speaks instead — and that pool supports the gossip placeholders, so the same two NPCs
+sound like a blacksmith and a fishmonger standing in their own market:
+
+```yaml
+gossip:
+  smalltalk-format: "<gold><speaker></gold> <gray>to <listener></gray> » <line>"
+  smalltalk:
+    - "Heard <mine_news>, <partner>. <traveler_tale>."
+    - "<greeting_word>, <listener_trait>! Sold <sales_today> <last_sold> in this <weather>?"
+    - "All the coin's up at <space> — <crowd> out there for a <daypart>."
+```
+
+```text
+/lsk job rola blacksmith   ·   /lsk trait rola gruff ex-miner   ·   /lsk mood rola tired
+/lsk gossip placeholders rola bert      # every tag, resolved live where you stand
+```
 
 ### Example 14: a patrolling barker
 

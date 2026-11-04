@@ -85,8 +85,15 @@ public final class AiChatService {
             }
         }
         this.providers = list;
-        if (enabled && list.isEmpty()) {
-            plugin.getLogger().warning("ai-chat.enabled is true but no usable providers are configured.");
+        if (enabled) {
+            int totalCombos = 0;
+            for (Provider p : list) totalCombos += p.keys().size() * p.models().size();
+            plugin.getLogger().info("[AI-Chat] Active with " + list.size() + " provider(s) and " + totalCombos + " key/model combo(s).");
+            if (list.isEmpty()) {
+                plugin.getLogger().warning("[AI-Chat] ai-chat.enabled is true but no usable providers are configured.");
+            }
+        } else {
+            plugin.getLogger().info("[AI-Chat] Disabled in config.");
         }
     }
 
@@ -118,6 +125,9 @@ public final class AiChatService {
                                String listenerName, String listenerPersona, String context,
                                Consumer<String> callback) {
         if (!enabled()) return false;
+        List<String[]> cand = candidates();
+        if (cand.isEmpty()) return false; // Quietly fallback when on cooldown; zero spam!
+
         long now = System.currentTimeMillis();
         Long last = convLastGen.get(convKey);
         if (last != null && now - last < minIntervalMs) return false;
@@ -142,7 +152,7 @@ public final class AiChatService {
             }
         }
         user.append(speakerName).append(" says next:");
-        attempt(candidates(), 0, system, user.toString(), line -> {
+        attempt(cand, 0, system, user.toString(), line -> {
             if (line != null) record(convKey, speakerName, line);
             Bukkit.getScheduler().runTask(plugin, () -> callback.accept(line));
         });
@@ -175,7 +185,7 @@ public final class AiChatService {
         JsonObject body = new JsonObject();
         body.addProperty("model", c[3]);
         body.addProperty("max_tokens", maxTokens);
-        body.addProperty("temperature", 0.9);
+        body.addProperty("temperature", 0.7);
         JsonArray messages = new JsonArray();
         messages.add(msg("system", system));
         messages.add(msg("user", user));
@@ -185,11 +195,25 @@ public final class AiChatService {
                 .timeout(Duration.ofSeconds(timeoutSeconds))
                 .header("Authorization", "Bearer " + c[2])
                 .header("Content-Type", "application/json")
+                .header("User-Agent", "LivingNPC/1.0")
                 .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
                 .build();
         http.sendAsync(req, HttpResponse.BodyHandlers.ofString()).whenComplete((resp, err) -> {
             String line = null;
-            if (err == null && resp != null && resp.statusCode() / 100 == 2) line = extract(resp.body());
+            if (err != null) {
+                plugin.getLogger().warning("[AI-Chat] " + c[3] + " error: " + err.getMessage());
+            } else if (resp != null) {
+                if (resp.statusCode() / 100 == 2) {
+                    line = extract(resp.body());
+                    if (line != null) {
+                        plugin.getLogger().info("[AI-Chat] " + c[3] + ": \"" + line + "\"");
+                    } else {
+                        plugin.getLogger().warning("[AI-Chat] " + c[3] + " returned no line (token length cap).");
+                    }
+                } else {
+                    plugin.getLogger().warning("[AI-Chat] " + c[3] + " HTTP " + resp.statusCode());
+                }
+            }
             if (line != null) {
                 done.accept(line);
             } else {
@@ -203,8 +227,26 @@ public final class AiChatService {
     private static String extract(String json) {
         try {
             JsonObject root = JsonParser.parseString(json).getAsJsonObject();
-            String content = root.getAsJsonArray("choices").get(0).getAsJsonObject()
-                    .getAsJsonObject("message").get("content").getAsString();
+            JsonArray choices = root.getAsJsonArray("choices");
+            if (choices == null || choices.isEmpty()) return null;
+            JsonObject choice0 = choices.get(0).getAsJsonObject();
+            JsonObject msg = choice0.getAsJsonObject("message");
+            if (msg == null) return null;
+            String content = null;
+            if (msg.has("content") && !msg.get("content").isJsonNull()) {
+                content = msg.get("content").getAsString();
+            } else if (msg.has("reasoning") && !msg.get("reasoning").isJsonNull()) {
+                // If model spent tokens in reasoning, extract the drafted dialogue inside quotes
+                String r = msg.get("reasoning").getAsString().strip();
+                int q2 = r.lastIndexOf('"');
+                if (q2 > 0) {
+                    int q1 = r.lastIndexOf('"', q2 - 1);
+                    if (q1 >= 0 && q2 - q1 > 2) {
+                        content = r.substring(q1 + 1, q2);
+                    }
+                }
+            }
+            if (content == null) return null;
             String line = content.strip();
             int nl = line.indexOf('\n');
             if (nl > 0) line = line.substring(0, nl).strip();

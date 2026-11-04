@@ -30,7 +30,8 @@ public final class LskCommand implements CommandExecutor, TabCompleter {
     private static final Pattern ID_RE = Pattern.compile("[a-zA-Z0-9_-]{1,32}");
     private static final List<String> SUBCOMMANDS =
             List.of("create", "remove", "list", "tp", "skin", "name", "barker", "combat", "lobby", "tag", "action",
-                    "space", "away", "back", "persona", "spar", "shopitem", "reload", "version");
+                    "space", "away", "back", "persona", "job", "trait", "mood", "gossip", "spar", "shopitem",
+                    "reload", "version");
     private static final List<String> COMBAT_MODES = List.of("flee", "fightback", "none", "default");
     private static final List<String> LOBBY_OPS = List.of("post", "seatwand", "seats", "clearseats");
     private static final List<String> TAG_OPS = List.of("add", "set", "remove", "clear", "list");
@@ -72,6 +73,10 @@ public final class LskCommand implements CommandExecutor, TabCompleter {
             case "away" -> awayCmd(sender, args);
             case "back" -> back(sender, args);
             case "persona" -> persona(sender, args);
+            case "job" -> flavor(sender, args, "job");
+            case "trait" -> flavor(sender, args, "trait");
+            case "mood" -> flavor(sender, args, "mood");
+            case "gossip" -> gossip(sender, args);
             case "spar" -> spar(sender, args);
             case "shopitem" -> shopItem(sender, args);
             default -> sender.sendMessage(msg("Unknown subcommand.", NamedTextColor.RED));
@@ -96,6 +101,8 @@ public final class LskCommand implements CommandExecutor, TabCompleter {
         s.sendMessage(msg("/lsk away <id> [minutes] [space]  ·  /lsk back <id>   (outing now; ghost head minds the post)", NamedTextColor.GRAY));
         s.sendMessage(msg("/lsk away <id> tag|space|minutes …   (its off-duty tag + outing defaults)", NamedTextColor.GRAY));
         s.sendMessage(msg("/lsk persona <id> <text…>   (character description for the AI chat system)", NamedTextColor.GRAY));
+        s.sendMessage(msg("/lsk job|trait|mood <id> <text…>   (gossip flavour: <speaker_job>, <speaker_trait>, <mood_speaker>)", NamedTextColor.GRAY));
+        s.sendMessage(msg("/lsk gossip placeholders <speaker> <listener>   (live table of every gossip placeholder)", NamedTextColor.GRAY));
         s.sendMessage(msg("/lsk spar <id> <on|off|region <wgRegion>|clearregion>   (friendly duels, mirrors the player's weapon)", NamedTextColor.GRAY));
     }
 
@@ -123,6 +130,106 @@ public final class LskCommand implements CommandExecutor, TabCompleter {
         } else {
             mgr.setPersona(k, text);
             s.sendMessage(msg("Set '" + k.getId() + "' persona.", NamedTextColor.GREEN));
+        }
+    }
+
+    /** Usage hints for the three gossip-flavour setters, keyed by subcommand (also the {@code show} example). */
+    private static final java.util.Map<String, String> FLAVOR_HINT = java.util.Map.of(
+            "job", "e.g. /lsk job mira blacksmith   (shown by <speaker_job>)",
+            "trait", "e.g. /lsk trait mira gruff ex-miner   (only the first word is used: <speaker_trait>)",
+            "mood", "e.g. /lsk mood mira tired   (shown by <mood_speaker>)");
+
+    /**
+     * {@code /lsk job|trait|mood <id> <text…|clear|show>} — the free-text flavour the gossip placeholders read
+     * ({@code <speaker_job>}, {@code <speaker_trait>}, {@code <mood_speaker>}…). Mirrors {@code /lsk persona}:
+     * the text is stored on the character and persisted to {@code character.yml}, {@code clear} removes it.
+     */
+    private void flavor(CommandSender s, String[] args, String field) {
+        if (notAdmin(s)) return;
+        CharacterManager mgr = mgrOrWarn(s);
+        if (mgr == null) return;
+        if (args.length < 3) {
+            s.sendMessage(msg("Usage: /lsk " + field + " <id> <text…>   ('clear' removes; 'show' prints)",
+                    NamedTextColor.RED));
+            s.sendMessage(msg(FLAVOR_HINT.getOrDefault(field, ""), NamedTextColor.GRAY));
+            return;
+        }
+        Character k = mgr.get(args[1]);
+        if (k == null) {
+            s.sendMessage(msg("No character called '" + args[1] + "'.", NamedTextColor.RED));
+            return;
+        }
+        String text = joinFrom(args, 2);
+        if (text.equalsIgnoreCase("clear")) {
+            setFlavor(mgr, k, field, null);
+            s.sendMessage(msg("Cleared '" + k.getId() + "' " + field + ".", NamedTextColor.GREEN));
+        } else if (text.equalsIgnoreCase("show")) {
+            String cur = flavorOf(k, field);
+            s.sendMessage(msg("'" + k.getId() + "' " + field + ": " + (cur == null ? "(none)" : cur),
+                    NamedTextColor.WHITE));
+        } else {
+            setFlavor(mgr, k, field, text);
+            s.sendMessage(msg("Set '" + k.getId() + "' " + field + " to '" + text + "'.", NamedTextColor.GREEN));
+        }
+    }
+
+    private static void setFlavor(CharacterManager mgr, Character k, String field, String value) {
+        switch (field) {
+            case "job" -> mgr.setJob(k, value);
+            case "trait" -> mgr.setTrait(k, value);
+            case "mood" -> mgr.setMood(k, value);
+            default -> throw new IllegalArgumentException("unknown flavour field: " + field);
+        }
+    }
+
+    private static String flavorOf(Character k, String field) {
+        return switch (field) {
+            case "job" -> k.job();
+            case "trait" -> k.trait();
+            case "mood" -> k.mood();
+            default -> null;
+        };
+    }
+
+    /**
+     * {@code /lsk gossip placeholders <speaker> <listener>} — the acceptance tool for the gossip placeholders:
+     * prints every registered tag with the value it would resolve to right here, right now (world clock, weather
+     * and crowd are read live from the sender's location, so the rows match the next line spoken nearby).
+     */
+    private void gossip(CommandSender s, String[] args) {
+        if (notAdmin(s)) return;
+        CharacterManager mgr = mgrOrWarn(s);
+        if (mgr == null) return;
+        if (args.length < 2 || !args[1].equalsIgnoreCase("placeholders")) {
+            s.sendMessage(msg("Usage: /lsk gossip placeholders <speakerId> <listenerId>", NamedTextColor.RED));
+            s.sendMessage(msg("Prints every gossip placeholder resolved at your location (the acceptance tool).",
+                    NamedTextColor.GRAY));
+            return;
+        }
+        if (args.length < 4) {
+            s.sendMessage(msg("Usage: /lsk gossip placeholders <speakerId> <listenerId>", NamedTextColor.RED));
+            return;
+        }
+        if (!(s instanceof Player p)) {
+            s.sendMessage(msg("Run this in-game — the scene (time, weather, crowd) comes from where you stand.",
+                    NamedTextColor.RED));
+            return;
+        }
+        Character speaker = mgr.get(args[2]);
+        Character listener = mgr.get(args[3]);
+        if (speaker == null || listener == null) {
+            s.sendMessage(msg("Unknown character: '" + (speaker == null ? args[2] : args[3]) + "'.", NamedTextColor.RED));
+            return;
+        }
+        dev.servereer.livingshopkeeper.dialog.GossipCtx ctx = mgr.gossipContextAt(speaker, listener, p.getLocation());
+        if (ctx == null) {
+            s.sendMessage(msg("That location has no world — stand somewhere loaded and try again.", NamedTextColor.RED));
+            return;
+        }
+        s.sendMessage(msg("Gossip placeholders · <" + speaker.getId() + "> speaking to <" + listener.getId()
+                + "> · at " + p.getWorld().getName() + " (live)", NamedTextColor.AQUA));
+        for (String row : dev.servereer.livingshopkeeper.dialog.GossipPlaceholders.table(ctx)) {
+            s.sendMessage(msg(row, NamedTextColor.WHITE));
         }
     }
 
@@ -582,10 +689,13 @@ public final class LskCommand implements CommandExecutor, TabCompleter {
                 }
                 plugin.seatWand().bind(player, k.getId());
                 org.bukkit.Material wand = plugin.seatWand().wandItem(k);
-                player.getInventory().addItem(new org.bukkit.inventory.ItemStack(wand));
-                s.sendMessage(msg("Seat wand bound to '" + k.getId() + "': right-click a slab/stair with the "
-                        + wand.name().toLowerCase(Locale.ROOT).replace('_', ' ')
-                        + " to add a seat, sneak-right-click to remove.", NamedTextColor.GREEN));
+                if (wand != null && !wand.isAir() && !player.getInventory().contains(wand)) {
+                    player.getInventory().addItem(new org.bukkit.inventory.ItemStack(wand));
+                }
+                String toolDesc = (wand == null || wand.isAir()) ? "an empty hand" : "the " + wand.name().toLowerCase(Locale.ROOT).replace('_', ' ');
+                s.sendMessage(msg("Seat wand bound to '" + k.getId() + "': right-click a slab/stair with "
+                        + toolDesc
+                        + " to add a seat, sneak-right-click to remove. Left-click air to finish.", NamedTextColor.GREEN));
             }
             case "seats" -> {
                 if (k.seats().isEmpty()) {
@@ -748,10 +858,13 @@ public final class LskCommand implements CommandExecutor, TabCompleter {
                 plugin.seatWand().bindSpace(player, args[2]);
                 org.bukkit.Material wand = org.bukkit.Material.matchMaterial(
                         plugin.getConfig().getString("lobby.seat-wand", "BLAZE_ROD").toUpperCase(Locale.ROOT));
-                if (wand == null) wand = org.bukkit.Material.BLAZE_ROD;
-                player.getInventory().addItem(new org.bukkit.inventory.ItemStack(wand));
+                if (wand != null && !wand.isAir() && !player.getInventory().contains(wand)) {
+                    player.getInventory().addItem(new org.bukkit.inventory.ItemStack(wand));
+                }
+                String toolDesc = (wand == null || wand.isAir()) ? "an empty hand" : "the " + (wand == null ? "blaze rod" : wand.name().toLowerCase(Locale.ROOT).replace('_', ' '));
                 s.sendMessage(msg("Seat wand bound to space '" + args[2].toLowerCase(Locale.ROOT)
-                        + "': right-click slabs/stairs to add seats, sneak-right-click to remove.", NamedTextColor.GREEN));
+                        + "': right-click slabs/stairs with " + toolDesc
+                        + " to add seats, sneak-right-click to remove. Left-click air to finish.", NamedTextColor.GREEN));
             }
             case "list" -> {
                 if (spaces.all().isEmpty()) {
@@ -971,6 +1084,18 @@ public final class LskCommand implements CommandExecutor, TabCompleter {
         return Component.text(text, color);
     }
 
+    /** Character ids starting with {@code prefix} (case-insensitive) — shared tab completion for id arguments. */
+    private List<String> characterIds(String prefix) {
+        CharacterManager mgr = plugin.characters();
+        if (mgr == null) return List.of();
+        String p = prefix == null ? "" : prefix.toLowerCase(Locale.ROOT);
+        List<String> ids = new ArrayList<>();
+        for (Character k : mgr.all()) {
+            if (k.getId().toLowerCase(Locale.ROOT).startsWith(p)) ids.add(k.getId());
+        }
+        return ids;
+    }
+
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
@@ -1009,7 +1134,8 @@ public final class LskCommand implements CommandExecutor, TabCompleter {
         if (args.length == 2 && (sub.equals("remove") || sub.equals("tp") || sub.equals("skin") || sub.equals("name")
                 || sub.equals("barker") || sub.equals("combat") || sub.equals("lobby") || sub.equals("tag")
                 || sub.equals("action") || sub.equals("away") || sub.equals("back")
-                || sub.equals("persona") || sub.equals("spar"))) {
+                || sub.equals("persona") || sub.equals("job") || sub.equals("trait") || sub.equals("mood")
+                || sub.equals("spar"))) {
             CharacterManager mgr = plugin.characters();
             if (mgr != null) {
                 String p = args[1].toLowerCase(Locale.ROOT);
@@ -1020,6 +1146,8 @@ public final class LskCommand implements CommandExecutor, TabCompleter {
                 return ids;
             }
         }
+        if (args.length == 3 && sub.equals("gossip")) return List.of("placeholders");
+        if ((args.length == 4 || args.length == 5) && sub.equals("gossip")) return characterIds(args[args.length - 1]);
         if (args.length == 3 && sub.equals("create")) return List.of("barker", "informer", "lobby", "shop");
         if (args.length == 3 && sub.equals("barker")) return BARKER_OPS;
         if (args.length == 3 && sub.equals("combat")) return COMBAT_MODES;

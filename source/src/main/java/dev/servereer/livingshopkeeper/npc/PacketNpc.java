@@ -50,8 +50,8 @@ import java.util.UUID;
  */
 final class PacketNpc {
 
-    private static final int META_SKIN_PARTS = 17; // Player entity: displayed skin parts bitmask (1.20.2–1.21.x)
-    private static final byte ALL_SKIN_LAYERS = 0x7F;
+    private static final int META_SKIN_PARTS = 16; // Player/Avatar entity: displayed skin parts bitmask in 1.21.2+ (Avatar.DATA_PLAYER_MODE_CUSTOMISATION)
+    private static final byte ALL_SKIN_LAYERS = (byte) 0x7F; // 127: cape, jacket, left sleeve, right sleeve, left pants, right pants, hat
     private static final MiniMessage MM = MiniMessage.miniMessage();
 
     private PacketNpc() {}
@@ -82,12 +82,10 @@ final class PacketNpc {
 
         Location pos = new Location(s.getX(), s.getY(), s.getZ(), s.yaw(), s.pitch());
         send(viewer, new WrapperPlayServerSpawnEntity(s.entityId, s.uuid(), EntityTypes.PLAYER, pos, s.yaw(), 0, null));
+        send(viewer, new WrapperPlayServerEntityMetadata(s.entityId, List.of(
+                new EntityData<>(META_SKIN_PARTS, EntityDataTypes.BYTE, ALL_SKIN_LAYERS))));
         spawnTags(viewer, s);
 
-        // NOTE: the displayed-skin-parts metadata (index 17 on ~1.21.0) is intentionally NOT sent here.
-        // On this 1.21.11 client it desynced the metadata stream and disconnected the viewer ("Network
-        // Protocol Error"). Re-add once the correct index/type for this version is confirmed; until then
-        // the NPC renders with its base skin (outer layers just may not show).
         send(viewer, new WrapperPlayServerEntityHeadLook(s.entityId, s.yaw()));
         if (s.seated) attachSeat(viewer, s);
         // The runtime crouch flag is not part of the spawn packet in all client versions.

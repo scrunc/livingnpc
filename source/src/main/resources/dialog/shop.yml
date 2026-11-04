@@ -5,6 +5,11 @@
 # Triggers: `greet` (a customer walks into the shop), `interact` (opening the shop — rate-limited patter),
 # `thanks` (right after a purchase), `hawk` (calling wares out to passers-by; needs Hawk behaviour on),
 # `hit` (someone punches the keeper), `farewell` (a buyer leaves), `gossip` (idle chat with a neighbour).
+# `gossip`/`gossip_reply`/`gossip_start`/`gossip_end`/`space_chat` are the NPC↔NPC beats: when no node here is
+# eligible the spoken line comes from config.yml `gossip.smalltalk`, which (with `gossip.placeholders.enabled`)
+# resolves <speaker>, <speaker_job>, <listener_trait>, <space>, <crowd>, <weather>, <mine_news>, … — the full
+# table is in GUIDE.md and `/lsk gossip placeholders <speaker> <listener>` prints it live. Lines authored HERE
+# only support <player>/<npc>/<time>.
 # Optional voice: add `voice: <clip>` per line + the clip in the character's voice/ folder (.mp3/.wav).
 
 nodes:

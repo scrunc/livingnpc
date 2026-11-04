@@ -53,6 +53,9 @@ public final class Character {
     private final List<String> awaySpaces = new ArrayList<>();   // spaces this NPC may visit; empty → any
 
     private String persona;          // short character description fed to the AI chat system, or null
+    // gossip flavour: what the NPC does, how it carries itself, how it feels — read by <speaker_job>,
+    // <speaker_trait>, <mood_speaker> (see GossipPlaceholders). All optional, all free text.
+    private String job, trait, mood;
     private String sparRegion;       // WG region where this NPC spars (ai.spar on); null → anywhere
     private String sparStyle;        // balanced | aggressive | defensive; null → balanced
     private String sparArmor;        // armor tier worn while dueling; null → global spar.armor config
@@ -171,6 +174,16 @@ public final class Character {
     /** Short in-character description for the AI chat system, or null → a generic one. */
     public String persona() { return persona; }
     void setPersona(String p) { this.persona = (p == null || p.isBlank()) ? null : p; }
+
+    /** What the NPC does, shown by {@code <speaker_job>}/{@code <listener_job>}; null → "trader". */
+    public String job() { return job; }
+    void setJob(String v) { this.job = blankNull(v); }
+    /** How the NPC carries itself; only the first word is shown by {@code <speaker_trait>}; null → "plain". */
+    public String trait() { return trait; }
+    void setTrait(String v) { this.trait = blankNull(v); }
+    /** How the NPC feels right now, shown by {@code <mood_speaker>}/{@code <mood_listener>}; null → "content". */
+    public String mood() { return mood; }
+    void setMood(String v) { this.mood = blankNull(v); }
     /** WG region this NPC spars in (with ai.spar on), or null → anywhere it's hit. */
     public String sparRegion() { return sparRegion; }
     void setSparRegion(String r) { this.sparRegion = (r == null || r.isBlank()) ? null : r; }
@@ -270,6 +283,9 @@ public final class Character {
         if (awayMinutes != null) yc.set("away.minutes", awayMinutes);
         if (!awaySpaces.isEmpty()) yc.set("away.spaces", new ArrayList<>(awaySpaces));
         if (persona != null) yc.set("persona", persona);
+        if (job != null) yc.set("job", job);
+        if (trait != null) yc.set("trait", trait);
+        if (mood != null) yc.set("mood", mood);
         if (sparRegion != null) yc.set("spar.region", sparRegion);
         if (sparStyle != null) yc.set("spar.style", sparStyle);
         if (sparArmor != null) yc.set("spar.armor", sparArmor);
@@ -354,7 +370,11 @@ public final class Character {
                 (float) yc.getDouble("yaw"), (float) yc.getDouble("pitch"),
                 yc.getString("name", id));
         c.display = yc.getString("display");
-        c.skinName = yc.getString("skin.name");
+        if (yc.isString("skin")) {
+            c.skinName = yc.getString("skin");
+        } else {
+            c.skinName = yc.getString("skin.name");
+        }
         c.textureValue = yc.getString("skin.value");
         c.textureSignature = yc.getString("skin.signature");
         c.greetingClip = yc.getString("voice.greeting", "greeting");
@@ -371,6 +391,9 @@ public final class Character {
         c.awaySpace = yc.getString("away.space");
         if (c.awaySpaces.isEmpty() && c.awaySpace != null) c.awaySpaces.add(c.awaySpace);   // migrate legacy single
         c.persona = yc.getString("persona");
+        c.setJob(yc.getString("job"));
+        c.setTrait(yc.getString("trait"));
+        c.setMood(yc.getString("mood"));
         c.sparRegion = yc.getString("spar.region");
         c.setSparStyle(yc.getString("spar.style"));
         c.setSparArmor(yc.getString("spar.armor"));
@@ -444,6 +467,11 @@ public final class Character {
 
     private static double num(Object o) {
         return o instanceof Number n ? n.doubleValue() : 0.0;
+    }
+
+    /** {@code null} for missing/blank optional strings, so "clear" really clears the field. */
+    private static String blankNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
     }
 
     private static int readWorldTime(ConfigurationSection s, String key, int def) {

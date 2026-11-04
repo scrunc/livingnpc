@@ -35,6 +35,26 @@ public final class DialogText {
         }
     }
 
+    /**
+     * Render an NPC↔NPC gossip line: the {@link GossipPlaceholders} registry is substituted first (see that
+     * class for the tag list and the fail-open rules), then the text goes through the exact same pipeline as
+     * {@link #render} — legacy {@code &} codes folded into MiniMessage, parsed, and shown literally if the
+     * author's markup is malformed. Used for {@code gossip.smalltalk} lines and {@code gossip.smalltalk-format}.
+     */
+    public static Component renderGossip(String raw, GossipCtx ctx) {
+        return renderGossip(raw, ctx, null);
+    }
+
+    /** As {@link #renderGossip(String, GossipCtx)}, reporting unknown tags through {@code warnOnce}. */
+    public static Component renderGossip(String raw, GossipCtx ctx, java.util.Set<String> warnOnce) {
+        String filled = GossipPlaceholders.fill(raw, ctx, warnOnce);
+        try {
+            return MM.deserialize(legacyToMini(filled));
+        } catch (Exception e) {
+            return Component.text(filled);   // unparseable markup → show as-is, never break the line
+        }
+    }
+
     /** Parse a MiniMessage string with no placeholder substitution (used for NPC names). Never throws. */
     public static Component mini(String text) {
         if (text == null) return Component.empty();

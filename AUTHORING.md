@@ -159,9 +159,52 @@ memory (P5) phases.)*
 (The **voiced audio is fixed**; dynamic values only appear in the subtitle — so record lines that read fine
 either way, e.g. "Good <time> to you.")
 
+### Gossip placeholders (NPC-to-NPC lines)
+
+Dialog `text:` only gets those three, but the fallback pool NPCs use when they chat with each other —
+`config.yml` → `gossip.smalltalk`, and the `gossip.smalltalk-format` wrapping it — gets ~30 live tags:
+
+```yaml
+gossip:
+  smalltalk-format: "<gold><speaker></gold> <gray>to <listener></gray> » <line>"
+  smalltalk:
+    - "Heard <mine_news>, <partner>. <traveler_tale>."
+    - "<greeting_word>, <listener_trait>! Sold <sales_today> <last_sold> in this <weather>?"
+    - "Slow trade today, <partner>? All the coin's up at <space>, I reckon."
+    - "Tell me about it. My <stock_low> hasn't moved since <daypart>."
+    - "<crowd> out there for a <daypart>, <speaker_job> or not."
+```
+
+Quick map: **who** `<speaker>`/`<npc>`, `<listener>`/`<partner>`, `*_job`, `*_trait` (first word only),
+`mood_*` · **where/when** `<time>`, `<daypart>`, `<day>`, `<weather>`, `<space>`, `<crowd>`, `<players_near>`,
+`<stall>` · **talk** `<topic>`, `<last_line>`, `<beat>`, `<relationship>`, `<greeting_word>` ·
+**story** `<sales_today>`, `<last_sold>`, `<last_buyer>`, `<stock_low>`, `<mine_news>`, `<traveler_tale>`,
+`<duel_winner>` · **structural** `<line>`.
+
+- Flavour comes from the character: `/lsk job mira blacksmith`, `/lsk trait mira gruff ex-miner`,
+  `/lsk mood mira tired` (persisted in `character.yml`; a missing field uses a sensible default).
+- `/lsk gossip placeholders <speakerId> <listenerId>` prints every tag with its live value where you stand.
+- A typo is left in the line and logged once per reload, so you always see it. Values are scrubbed and
+  length-capped before they land in a line, and `<line>` is the one tag inserted verbatim.
+- The full table, defaults and limits are in `GUIDE.md` section 6.7.
+
 ### Durations
 
 `cooldown:` accepts `500ms`, `8s`, `2m`, `1h`, or a bare number = seconds. Default `5s`.
+
+### Adding a gossip placeholder (the one-file rule)
+
+Adding tag #31 touches exactly two things: the registry and the docs.
+
+1. `dialog/GossipPlaceholders.java` → one line in `defaults()`, e.g.
+   `m.put("stall_age", c -> c.scene().stall());` — the resolver gets the read-only `GossipCtx` and must
+   return a non-null string (it never needs the world, the config, or the plugin).
+2. Document the row in `GUIDE.md` §6.7 (and mention it here if it is author-facing).
+
+If the value needs data the context does not carry yet, add a field to `GossipCtx` (its `Scene`/`Talk`/`News`
+sub-records are the natural home) and fill it once per beat in `CharacterManager.gossipCtx(...)` — that is the
+only place that reads the live world. Caps go in `GossipPlaceholders.LIMITS`, and
+`GossipPlaceholdersTest` has a "catalogue" list plus an "every tag resolves" test to keep code and docs honest.
 
 ### Subtitle display
 

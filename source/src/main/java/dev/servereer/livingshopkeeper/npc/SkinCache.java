@@ -94,25 +94,61 @@ public final class SkinCache {
     }
 
     /**
-     * Resolve {@code name} (disk cache first, then Mojang) off the main thread. {@code cb} is invoked on
-     * the fetch thread with either a {@link Skin} or a non-null error — never both. On success the result
-     * is written to disk before {@code cb} runs.
+     * Resolve {@code name} (disk cache, online players, URLs, then Mojang API) off the main thread.
+     * {@code cb} is invoked with either a {@link Skin} or a non-null error — never both.
+     * On success the result is written to disk before {@code cb} runs.
      */
     public void fetchAsync(String name, BiConsumer<Skin, String> cb) {
-        Skin hit = cached(name);
+        if (name == null || name.isBlank()) {
+            cb.accept(null, "empty player name");
+            return;
+        }
+        String clean = name.trim();
+        Skin hit = cached(clean);
         if (hit != null) { cb.accept(hit, null); return; }
+
+        // Check if the input is a textures.minecraft.net URL or bare hash
+        String directUrlVal = textureValueForUrl(clean);
+        if (directUrlVal != null) {
+            Skin skin = new Skin(directUrlVal, null);
+            save(clean, skin);
+            cb.accept(skin, null);
+            return;
+        }
+
+        // Check if an online player on the server matches this name
+        org.bukkit.entity.Player online = org.bukkit.Bukkit.getPlayerExact(clean);
+        if (online == null) {
+            for (org.bukkit.entity.Player p : org.bukkit.Bukkit.getOnlinePlayers()) {
+                if (p.getName().equalsIgnoreCase(clean)) {
+                    online = p;
+                    break;
+                }
+            }
+        }
+        if (online != null) {
+            for (com.destroystokyo.paper.profile.ProfileProperty prop : online.getPlayerProfile().getProperties()) {
+                if ("textures".equalsIgnoreCase(prop.getName())) {
+                    Skin skin = new Skin(prop.getValue(), prop.getSignature());
+                    save(clean, skin);
+                    cb.accept(skin, null);
+                    return;
+                }
+            }
+        }
+
         pool.submit(() -> {
             try {
-                String uuid = getString("https://api.mojang.com/users/profiles/minecraft/" + name, ID_RE);
-                if (uuid == null) { cb.accept(null, "no such player: " + name); return; }
+                String uuid = getString("https://api.mojang.com/users/profiles/minecraft/" + clean, ID_RE);
+                if (uuid == null) { cb.accept(null, "no such player: " + clean); return; }
                 String body = get("https://sessionserver.mojang.com/session/minecraft/profile/" + uuid + "?unsigned=false");
                 Matcher vm = VALUE_RE.matcher(body);
-                if (!vm.find()) { cb.accept(null, "no textures for " + name); return; }
+                if (!vm.find()) { cb.accept(null, "no textures for " + clean); return; }
                 String value = vm.group(1);
                 Matcher sm = SIGNATURE_RE.matcher(body);
                 String signature = sm.find() ? sm.group(1) : null;
                 Skin skin = new Skin(value, signature);
-                save(name, skin);
+                save(clean, skin);
                 cb.accept(skin, null);
             } catch (Throwable t) {
                 cb.accept(null, String.valueOf(t.getMessage()));

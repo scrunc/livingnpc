@@ -91,6 +91,15 @@ public final class NpcInteractListener extends PacketListenerAbstract {
 
     /** Common tail: entity id → character, then hop to the main thread for anything Bukkit. */
     private void handle(PacketReceiveEvent event, int entityId, boolean attack, boolean sneaking) {
+        // Puppets (another plugin's bots): only left-clicks matter, handed to the owner on the main thread.
+        var puppet = dev.servereer.livingshopkeeper.api.Puppets.byEntityId(entityId);
+        if (puppet != null) {
+            Player clicker = event.getPlayer();
+            if (clicker == null) return;
+            if (attack) Bukkit.getScheduler().runTask(plugin, () -> puppet.fireAttack(clicker));
+            else if (!isDuplicate(clicker.getUniqueId(), entityId)) Bukkit.getScheduler().runTask(plugin, () -> puppet.fireInteract(clicker));
+            return;
+        }
         Character s = manager.byEntityId(entityId);
         if (s == null) return;
 

@@ -6,6 +6,7 @@ group = "dev.servereer"
 version = "0.1.0"
 
 repositories {
+    mavenLocal()
     mavenCentral()
     maven("https://repo.papermc.io/repository/maven-public/")
     maven("https://repo.codemc.io/repository/maven-releases/")        // PacketEvents
@@ -16,6 +17,7 @@ repositories {
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
+    compileOnly("org.illustro:picore:1.2.0")
     // Server-provided PacketEvents — becomes a plugin `depend` at P1 (packet-NPC bodies).
     // Not shaded: a second PacketEvents instance would fight the server's packet injection.
     // 2.13.0 (was 2.12.0) for MC 26.x: the client's attack is a separate packet there
@@ -42,6 +44,15 @@ dependencies {
     // regions), and "a customer is in the shop" means inside the shop's region. Guarded in RegionGate.
     compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.0.9")
     // Vault (economy, P4) joins here as compileOnly when that phase lands.
+
+    // Unit tests (GossipPlaceholders / GossipCtx / DialogText.renderGossip) use JUnit 5 (Jupiter). Without a
+    // declared test framework Gradle falls back to JUnit 4 and the `test` task fails to start ("Failed to load
+    // JUnit 4"). The API jar is added to the test classpath too — never a running server, but the dialog and
+    // condition classes reference World/Player in their signatures, so the classes have to link under test.
+    testImplementation(platform("org.junit:junit-bom:5.11.4"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testImplementation("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
 }
 
 java {
@@ -56,6 +67,10 @@ tasks.processResources {
     filesMatching("plugin.yml") {
         expand("version" to version)
     }
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 tasks.jar {

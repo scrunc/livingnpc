@@ -57,6 +57,12 @@ public final class DialogEngine {
         String globalKey = sp.key().toString();
         if (now < clocks.getOrDefault(globalKey, 0L)) return false;   // spoke too recently
 
+        boolean isGreet = "greet".equalsIgnoreCase(trigger);
+        long greetGapMs = (long) (plugin.getConfig().getDouble("lobby.player-greet-cooldown-seconds", 15.0) * 1000);
+        if (isGreet && greetGapMs > 0 && now < clocks.getOrDefault("__global_greet__", 0L)) {
+            return false;   // another NPC greeted this player recently
+        }
+
         DialogNode node = pickNode(pack.nodesFor(trigger), p, now, clocks, sp.key());
         if (node == null) return false;
         DialogLine line = pickLine(node.lines, p);
@@ -65,6 +71,9 @@ public final class DialogEngine {
         // stamp cooldowns
         clocks.put(globalKey, now + GLOBAL_MIN_GAP_MS);
         if (node.cooldownMs > 0) clocks.put(nodeKey(sp.key(), node.id), now + node.cooldownMs);
+        if (isGreet && greetGapMs > 0) {
+            clocks.put("__global_greet__", now + greetGapMs);
+        }
 
         if (line.text != null && !line.text.isBlank()) {
             subtitle(p, sp.name(), DialogText.render(line.text, p.getName(), sp.name(), sp.world()));
