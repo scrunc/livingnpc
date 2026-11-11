@@ -1,0 +1,108 @@
+name: CI
+
+# Every push / PR: compile LivingNPC (+ the voicecore module) and keep the jars as a workflow artifact.
+# A tag vX.Y.Z (must match `version` in source/build.gradle.kts): also publish a GitHub Release with the jar,
+# notes = the tag's annotation (the changelog) + every commit since the previous tag.
+#
+# Dependencies, built from their public repos: PiCore (scrunc/picore at the tag matching the
+# `org.illustro:picore:X.Y.Z` line, installed to mavenLocal) and PixelAudio (scrunc/pixelaudio main).
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Versions
+        id: v
+        run: |
+          V=$(grep -oP '^version\s*=\s*"\K[^"]+' source/build.gradle.kts)
+          PICORE=$(grep -oP 'org\.illustro:picore:\K[0-9][^"]*' source/build.gradle.kts)
+          echo "v=$V" >> "$GITHUB_OUTPUT"
+          echo "picore=$PICORE" >> "$GITHUB_OUTPUT"
+          echo "LivingNPC $V against PiCore $PICORE"
+          if [[ "$GITHUB_REF" == refs/tags/v* && "${GITHUB_REF_NAME#v}" != "$V" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match build.gradle.kts version $V"; exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          repository: scrunc/picore
+          ref: v${{ steps.v.outputs.picore }}
+          path: _deps/picore
+
+      - uses: actions/checkout@v4
+        with:
+          repository: scrunc/pixelaudio
+          path: _deps/pixelaudio
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install PiCore ${{ steps.v.outputs.picore }} to mavenLocal
+        working-directory: _deps/picore/source
+        run: mvn -B -q -DskipTests install
+
+      - name: Build PixelAudio
+        working-directory: _deps/pixelaudio/source
+        run: |
+          chmod +x gradlew
+          ./gradlew jar --no-daemon
+          echo "PIXELAUDIO_JAR=$(ls "$PWD"/build/libs/PixelAudio-*.jar | grep -v -- '-sources\|-javadoc' | head -1)" >> "$GITHUB_ENV"
+
+      - name: Build LivingNPC
+        working-directory: source
+        run: |
+          chmod +x gradlew
+          ./gradlew build --no-daemon -PpixelaudioJar="$PIXELAUDIO_JAR"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LivingNPC-${{ steps.v.outputs.v }}
+          path: |
+            source/build/libs/LivingNPC-${{ steps.v.outputs.v }}.jar
+            source/voicecore/build/libs/*.jar
+          if-no-files-found: error
+
+      - name: Release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          git fetch --tags --force
+          TAG="${GITHUB_REF_NAME}"
+          PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          {
+            echo "## LivingNPC ${TAG}"
+            echo
+            git tag -l --format='%(contents)' "${TAG}"
+            echo
+            echo "### Commits"
+            if [ -n "${PREV}" ]; then RANGE="${PREV}..${TAG}"; else RANGE="${TAG}"; fi
+            git log --no-merges --pretty='- %s (%h)%n%w(0,2,2)%b' "${RANGE}"
+          } > RELEASE_NOTES.md
+          cat RELEASE_NOTES.md
+
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          body_path: RELEASE_NOTES.md
+          files: source/build/libs/LivingNPC-${{ steps.v.outputs.v }}.jar

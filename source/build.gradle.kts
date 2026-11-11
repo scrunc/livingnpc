@@ -17,7 +17,7 @@ repositories {
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
-    compileOnly("org.illustro:picore:1.2.0")
+    compileOnly("org.illustro:picore:1.5.0")
     // Server-provided PacketEvents — becomes a plugin `depend` at P1 (packet-NPC bodies).
     // Not shaded: a second PacketEvents instance would fight the server's packet injection.
     // 2.13.0 (was 2.12.0) for MC 26.x: the client's attack is a separate packet there
@@ -33,7 +33,9 @@ dependencies {
     // compileOnly + a plugin `softdepend`: resolved at runtime from PixelAudio's own classloader (NOT
     // bundled) so both plugins share the exact same types. Gradle build outside this module, so it is
     // consumed as a file — run `./gradlew jar` in plugin_customized/pixelaudio/source if the jar is stale.
-    compileOnly(files(rootProject.projectDir.resolve("../../pixelaudio/source/build/libs/PixelAudio-0.1.0.jar")))
+    // CI: -PpixelaudioJar=<path> (built from the public scrunc/pixelaudio); locally the sibling checkout.
+    compileOnly(files((findProperty("pixelaudioJar") as String?)?.let { file(it) }
+            ?: rootProject.projectDir.resolve("../../pixelaudio/source/build/libs/PixelAudio-0.1.0.jar")))
     // JLayer — pure-Java MP3 decoder so ElevenLabs .mp3 clips play without conversion. Provided at RUNTIME
     // by Paper's `libraries:` loader (see plugin.yml), so compileOnly here — decoded via JLayer's API
     // directly (not the javax.sound SPI, which is classloader-fragile under Paper's isolated loaders).
